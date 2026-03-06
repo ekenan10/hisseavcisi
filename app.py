@@ -10,6 +10,7 @@ CORS(app, resources={r"/api/*": {"origins": "*"}})
 price_cache = {}
 fin_cache   = {}
 PRICE_TTL   = 120
+FIN_TTL     = 7200  # 2 saat — bilanço nadiren değişir
 
 def cache_ok(cache, sym, ttl):
     c = cache.get(sym)
@@ -40,7 +41,6 @@ def get_prices():
     fresh = [s for s in syms if not cache_ok(price_cache, s, PRICE_TTL)]
 
     if fresh:
-        # Küçük gruplarda çek — rate limit dostu
         for i in range(0, len(fresh), 5):
             chunk = fresh[i:i+5]
             tickers_str = ' '.join([s + '.IS' for s in chunk])
@@ -50,25 +50,21 @@ def get_prices():
                     auto_adjust=True, progress=False, threads=False
                 )
                 import pandas as pd
-                if data.empty:
-                    continue
+                if data.empty: continue
                 if isinstance(data.columns, pd.MultiIndex):
-                    closes = data['Close'] if 'Close' in data.columns.get_level_values(0) else data
+                    closes = data['Close']
                     for sym in chunk:
                         try:
                             col = sym + '.IS'
-                            if col not in closes.columns:
-                                continue
+                            if col not in closes.columns: continue
                             vals = closes[col].dropna()
                             if len(vals) >= 2:
                                 price = round(float(vals.iloc[-1]), 2)
                                 prev  = round(float(vals.iloc[-2]), 2)
                                 chg   = round((price-prev)/prev*100, 2) if prev else 0
                                 price_cache[sym] = {'price': price, 'prevClose': prev, 'change': chg, '_ts': time.time()}
-                        except:
-                            pass
+                        except: pass
                 else:
-                    # Tek hisse
                     vals = data['Close'].dropna() if 'Close' in data.columns else data.iloc[:,0].dropna()
                     if len(vals) >= 2 and chunk:
                         sym = chunk[0]
@@ -78,7 +74,7 @@ def get_prices():
                         price_cache[sym] = {'price': price, 'prevClose': prev, 'change': chg, '_ts': time.time()}
             except Exception as e:
                 print(f"Chunk error {chunk}: {e}")
-            time.sleep(0.5)  # rate limit için bekle
+            time.sleep(0.5)
 
     for sym in syms:
         c = price_cache.get(sym, {})
@@ -89,32 +85,53 @@ def get_prices():
 @app.route('/api/fundamentals/<sym>')
 def get_fundamentals(sym):
     sym = sym.upper()
-    if cache_ok(fin_cache, sym, 3600):
+    if cache_ok(fin_cache, sym, FIN_TTL):
         data = {k: v for k, v in fin_cache[sym].items() if not k.startswith('_')}
         return jsonify({'data': data, 'cached': True})
-    try:
-        info = yf.Ticker(sym + '.IS').info
-        eps   = info.get('trailingEps')
-        bvps  = info.get('bookValue')
-        price = info.get('currentPrice') or info.get('regularMarketPrice', 0)
-        graham = round((22.5*eps*bvps)**0.5, 2) if eps and bvps and eps>0 and bvps>0 else None
-        data = {
-            'price': price, 'pe': info.get('trailingPE'), 'pb': info.get('priceToBook'),
-            'eps': eps, 'bvps': bvps,
-            'divYield': round((info.get('dividendYield') or 0)*100, 2),
-            'roe': round((info.get('returnOnEquity') or 0)*100, 2),
-            'roa': round((info.get('returnOnAssets') or 0)*100, 2),
-            'revenue': info.get('totalRevenue'), 'netIncome': info.get('netIncomeToCommon'),
-            'debtEq': round((info.get('debtToEquity') or 0)/100, 2),
-            'currentRatio': info.get('currentRatio'), 'marketCap': info.get('marketCap'),
-            'graham': graham,
-            'priceToGraham': round(price/graham, 2) if graham and price else None,
-            'ts': datetime.now().strftime('%H:%M:%S')
-        }
-        fin_cache[sym] = {**data, '_ts': time.time()}
-        return jsonify({'data': data, 'cached': False})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    
+    # Rate limit için retry
+    last_err = None
+    for attempt in range(3):
+        try:
+            if attempt > 0:
+                time.sleep(2 * attempt)  # 2s, 4s bekle
+            
+            info = yf.Ticker(sym + '.IS').info
+            if not info or len(info) < 5:
+                raise Exception('Boş veri')
+                
+            eps   = info.get('trailingEps')
+            bvps  = info.get('bookValue')
+            price = info.get('currentPrice') or info.get('regularMarketPrice', 0)
+            graham = round((22.5*eps*bvps)**0.5, 2) if eps and bvps and eps>0 and bvps>0 else None
+            data = {
+                'price': price,
+                'pe': info.get('trailingPE'),
+                'pb': info.get('priceToBook'),
+                'eps': eps, 'bvps': bvps,
+                'divYield': round((info.get('dividendYield') or 0)*100, 2),
+                'roe': round((info.get('returnOnEquity') or 0)*100, 2),
+                'roa': round((info.get('returnOnAssets') or 0)*100, 2),
+                'revenue': info.get('totalRevenue'),
+                'netIncome': info.get('netIncomeToCommon'),
+                'debtEq': round((info.get('debtToEquity') or 0)/100, 2),
+                'currentRatio': info.get('currentRatio'),
+                'marketCap': info.get('marketCap'),
+                'graham': graham,
+                'priceToGraham': round(price/graham, 2) if graham and price else None,
+                'ts': datetime.now().strftime('%H:%M:%S')
+            }
+            fin_cache[sym] = {**data, '_ts': time.time()}
+            return jsonify({'data': data, 'cached': False})
+            
+        except Exception as e:
+            last_err = str(e)
+            if 'Rate' in str(e) or 'rate' in str(e) or '429' in str(e):
+                time.sleep(3)
+                continue
+            break
+    
+    return jsonify({'error': last_err or 'Veri alınamadı'}), 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=False)
