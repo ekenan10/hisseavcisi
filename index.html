@@ -92,7 +92,14 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--m
 .green{color:var(--green)}.red{color:var(--red)}.yellow{color:var(--yellow)}
 
 /* SIGNAL DETAIL */
-#detail-panel{background:var(--bg2);border-left:1px solid var(--border);width:420px;flex-shrink:0;overflow-y:auto;display:none}
+#detail-panel{
+  position:fixed;top:0;left:0;right:0;bottom:0;
+  background:var(--bg);
+  overflow-y:auto;
+  display:none;
+  z-index:200;
+  padding:0;
+}
 #detail-panel.open{display:block}
 #signals-layout{display:flex;height:100%}
 #signals-list{flex:1;overflow-y:auto;padding:16px 20px}
@@ -260,7 +267,27 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--m
       </div>
     </div>
     <div id="detail-panel">
-      <div id="detail-content" style="padding:16px"></div>
+      <div id="detail-panel-header" style="
+  position:sticky;top:0;z-index:10;
+  background:var(--bg);
+  border-bottom:1px solid var(--border);
+  padding:10px 16px;
+  display:flex;align-items:center;gap:12px;
+">
+  <button onclick="closeDetail()" style="
+    background:rgba(255,255,255,0.06);border:1px solid var(--border);
+    color:var(--text);font-size:18px;cursor:pointer;
+    border-radius:8px;width:34px;height:34px;
+    display:flex;align-items:center;justify-content:center;
+    flex-shrink:0;
+  ">←</button>
+  <span id="detail-panel-title" style="font-family:var(--display);font-size:15px;font-weight:700;color:var(--muted)"></span>
+</div>
+<div id="detail-content" style="
+  max-width:700px;
+  margin:0 auto;
+  padding:16px 16px 40px;
+"></div>
     </div>
   </div>
 </div>
@@ -1119,9 +1146,16 @@ function renderSignals(){
   if(selectedSym&&DB[selectedSym]) renderDetail(selectedSym);
 }
 
+function closeDetail(){
+  $('detail-panel').classList.remove('open');
+  selectedSym=null;
+  document.body.style.overflow='';
+}
+
 function openDetail(sym){
   selectedSym=sym;
   $('detail-panel').classList.add('open');
+  document.body.style.overflow='hidden'; // Arka sayfa scroll'u kapat
   renderDetail(sym);
   // Update table highlight
   document.querySelectorAll('#sig-tbody tr').forEach((r,i)=>{
@@ -1356,7 +1390,7 @@ function renderDetail(sym){
       </div>
       <div style="font-size:9px;color:var(--muted);margin-top:2px">${d.name} • Hacim: ${fmtK(d.volume)}</div>
     </div>
-    <button onclick="$('detail-panel').classList.remove('open');selectedSym=null" style="background:transparent;border:none;color:var(--muted);font-size:20px;cursor:pointer;padding:4px">×</button>
+    <div></div>
   </div>
 
   <div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap">
@@ -1447,6 +1481,11 @@ function renderDetail(sym){
   </div>`;
 
   $('detail-content').innerHTML=html;
+  // Panel başlığını güncelle
+  const dp = $('detail-panel-title');
+  if(dp){ const dobj=DB[sym]; dp.textContent=sym + (dobj?' — '+dobj.name:''); }
+  // Sayfayı en üste scroll et
+  $('detail-panel').scrollTo({top:0});
   // Load TV widget
   setTimeout(()=>loadTV(sym,'D'), 50);
   setTimeout(()=>drawCompChart(sym, selectedCompPeriod||'1A'), 80);
