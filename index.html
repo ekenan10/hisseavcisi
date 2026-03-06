@@ -1601,93 +1601,135 @@ function confirmPort(){
 }
 function exportPortXLSX(){
   if(!portfolio.length){ notify('Portföy boş', true); return; }
-  
-  // SheetJS CDN'den yükle
-  if(!window.XLSX){
+
+  const loadXLSX = (cb) => {
+    if(window.XLSX){ cb(); return; }
     const s=document.createElement('script');
     s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
-    s.onload=()=>exportPortXLSX();
-    document.head.appendChild(s);
-    notify('Excel hazırlanıyor...');
-    return;
-  }
+    s.onload=cb; document.head.appendChild(s);
+  };
 
-  const now=new Date().toLocaleDateString('tr-TR');
-  const portVal=portfolio.reduce((s,p)=>{const cp=DB[p.symbol]?.price||p.cost;return s+cp*p.qty;},0);
-  const portCost=portfolio.reduce((s,p)=>s+p.cost*p.qty,0);
-  const portPnl=portVal-portCost;
+  loadXLSX(()=>{
+    const wb = XLSX.utils.book_new();
+    const now = new Date().toLocaleDateString('tr-TR');
 
-  const wb=XLSX.utils.book_new();
+    const totalCost = portfolio.reduce((s,p)=>s+p.cost*p.qty, 0);
+    const totalVal  = portfolio.reduce((s,p)=>{const cp=DB[p.symbol]?.price||p.cost; return s+cp*p.qty;}, 0);
+    const totalPnl  = totalVal - totalCost;
+    const totalPct  = totalCost ? totalPnl/totalCost : 0;
+    const winners   = portfolio.filter(p=>{const cp=DB[p.symbol]?.price||p.cost; return cp>p.cost;});
 
-  // ── SHEET 1: DASHBOARD ──────────────────────
-  const dash=[
-    ['HİSSE AVCISI — PORTFÖY RAPORU','','','','','','','','',''],
-    [`Tarih: ${now}`,'','','','','','','','',''],
-    ['','','','','','','','','',''],
-    ['TOPLAM DEĞER','TOPLAM MALİYET','NET K/Z (₺)','GETİRİ ORANI (%)','POZİSYON SAYISI','','','','',''],
-    [portVal, portCost, portPnl, portCost?portPnl/portCost*100:0, portfolio.length,'','','','',''],
-    ['','','','','','','','','',''],
-    ['HİSSE','ŞİRKET','SEKTÖR','LOT','MALİYET/HİSSE (₺)','ANL. FİYAT (₺)','TOP. DEĞER (₺)','TOP. MALİYET (₺)','K/Z (₺)','K/Z (%)'],
-  ];
-  portfolio.forEach(p=>{
-    const d=DB[p.symbol]; const cp=d?.price||p.cost;
-    const tv=cp*p.qty, tc=p.cost*p.qty, pnl=tv-tc, pct=tc?pnl/tc*100:0;
-    dash.push([p.symbol,d?.name||'',d?.sector||'',p.qty,p.cost,cp,tv,tc,pnl,pct]);
-  });
-  dash.push(['','','','','','','','','','']);
-  dash.push(['TOPLAM','','','',portCost/portfolio.length||0,'',portVal,portCost,portPnl,portCost?portPnl/portCost*100:0]);
+    // ── SHEET 1: DASHBOARD ──────────────────────────────
+    const ws1 = XLSX.utils.aoa_to_sheet([]);
+    const s = (v,bold,color,bg,sz,align,fmt) => ({v,t:typeof v==='number'?'n':'s',s:{
+      font:{bold:!!bold,color:{rgb:color||'E8E8F0'},sz:sz||11,name:'Calibri'},
+      fill:{patternType:'solid',fgColor:{rgb:bg||'0D0D1A'}},
+      alignment:{horizontal:align||'left',vertical:'center'},
+      numFmt:fmt||''
+    }});
 
-  const ws1=XLSX.utils.aoa_to_sheet(dash);
-  ws1['!cols']=[{wch:10},{wch:24},{wch:16},{wch:7},{wch:16},{wch:16},{wch:16},{wch:16},{wch:14},{wch:12}];
-  
-  // Sayı formatları
-  const tryFmt='#,##0.00 ₺'; const pctFmt='0.00%';
-  for(let i=0;i<portfolio.length;i++){
-    const r=8+i;
-    ['E','F','G','H','I'].forEach(c=>{
-      const cell=ws1[c+r]; if(cell) cell.z=tryFmt;
+    // Başlık
+    ws1['A1'] = s('🎯 HİSSE AVCISI — PORTFÖY DASHBOARD',true,'00E676','0D1A0D',18,'left');
+    ws1['A2'] = s('Rapor: '+now+' | '+new Date().toLocaleTimeString('tr-TR'),false,'666680','0D0D1A',9);
+
+    // KPI satırları
+    ws1['A4'] = s('TOPLAM DEĞER',true,'666680','141428',9,'center');
+    ws1['B4'] = s('TOPLAM MALİYET',true,'666680','141428',9,'center');
+    ws1['C4'] = s('NET K/Z (₺)',true,'666680','141428',9,'center');
+    ws1['D4'] = s('GETİRİ',true,'666680','141428',9,'center');
+    ws1['E4'] = s('KAZANAN',true,'666680','141428',9,'center');
+    ws1['F4'] = s('POZİSYON',true,'666680','141428',9,'center');
+
+    ws1['A5'] = s(totalVal,true,'E8E8F0','141428',18,'center','#,##0.00 ₺');
+    ws1['B5'] = s(totalCost,true,'888899','141428',18,'center','#,##0.00 ₺');
+    ws1['C5'] = s(totalPnl,true,totalPnl>=0?'00E676':'FF1744','141428',18,'center','+#,##0.00 ₺;-#,##0.00 ₺');
+    ws1['D5'] = s(totalPct,true,totalPct>=0?'00E676':'FF1744','141428',18,'center','+0.00%;-0.00%');
+    ws1['E5'] = s(winners.length+'/'+portfolio.length,true,'FFD600','141428',18,'center');
+    ws1['F5'] = s(portfolio.length,true,'2979FF','141428',18,'center');
+
+    // Boş satır
+    ws1['A6'] = s('','false','0D0D1A','0D0D1A');
+
+    // Tablo başlığı
+    const thBg = '0A0A18';
+    const ths = ['HİSSE','ŞİRKET','SEKTÖR','LOT','MALİYET/HİSSE','ANL.FİYAT','TOP.DEĞER','TOP.MALİYET','K/Z ₺','K/Z %','SİNYAL','TARİH'];
+    const thCols = 'ABCDEFGHIJKL';
+    ths.forEach((h,i)=>{
+      ws1[thCols[i]+'7'] = s(h,true,'2979FF',thBg,9,'center');
     });
-    const jcell=ws1['J'+r]; if(jcell){jcell.z=pctFmt; jcell.v=(jcell.v||0)/100;}
-  }
-  XLSX.utils.book_append_sheet(wb, ws1, 'Portföy');
 
-  // ── SHEET 2: SEKTÖR ANALİZİ ──────────────────
-  const secMap={};
-  portfolio.forEach(p=>{
-    const sec=DB[p.symbol]?.sector||'Diğer';
-    const cp=DB[p.symbol]?.price||p.cost; const tv=cp*p.qty; const tc=p.cost*p.qty;
-    if(!secMap[sec]) secMap[sec]={deger:0,maliyet:0,adet:0};
-    secMap[sec].deger+=tv; secMap[sec].maliyet+=tc; secMap[sec].adet++;
-  });
-  const sec2=[['SEKTÖR','TOPLAM DEĞER (₺)','TOPLAM MALİYET (₺)','K/Z (₺)','K/Z (%)','POZİSYON','AĞIRLIK (%)']];
-  Object.entries(secMap).sort((a,b)=>b[1].deger-a[1].deger).forEach(([k,v])=>{
-    sec2.push([k,v.deger,v.maliyet,v.deger-v.maliyet,v.maliyet?(v.deger-v.maliyet)/v.maliyet*100:0,v.adet,portVal?v.deger/portVal*100:0]);
-  });
-  sec2.push(['','','','','','','']);
-  sec2.push(['TOPLAM',portVal,portCost,portPnl,portCost?portPnl/portCost*100:0,portfolio.length,100]);
-  const ws2=XLSX.utils.aoa_to_sheet(sec2);
-  ws2['!cols']=[{wch:18},{wch:18},{wch:18},{wch:14},{wch:12},{wch:12},{wch:12}];
-  XLSX.utils.book_append_sheet(wb, ws2, 'Sektör Analizi');
+    // Veri satırları
+    portfolio.forEach((p,i)=>{
+      const d=DB[p.symbol];
+      const cp=d?.price||p.cost;
+      const val=cp*p.qty, mc=p.cost*p.qty, pnl=val-mc, pct=mc?pnl/mc:0;
+      const sig=d?.signals?.[selectedTF]?.sig||'';
+      const rowBg = i%2===0 ? '141428' : '0F0F20';
+      const pnlColor = pnl>=0 ? '00E676' : 'FF1744';
+      const row = 8+i;
+      const rowData = [
+        s(p.symbol,true,'E8E8F0',rowBg,11,'center'),
+        s(d?.name||'',false,'AAAACC',rowBg,10,'left'),
+        s(d?.sector||'',false,'888899',rowBg,10,'center'),
+        s(p.qty,false,'E8E8F0',rowBg,11,'center','#,##0'),
+        s(p.cost,false,'AAAACC',rowBg,11,'center','#,##0.00 ₺'),
+        s(cp,false,'E8E8F0',rowBg,11,'center','#,##0.00 ₺'),
+        s(val,false,'E8E8F0',rowBg,11,'center','#,##0.00 ₺'),
+        s(mc,false,'888899',rowBg,11,'center','#,##0.00 ₺'),
+        s(pnl,true,pnlColor,rowBg,11,'center','+#,##0.00 ₺;-#,##0.00 ₺'),
+        s(pct,true,pnlColor,rowBg,11,'center','+0.00%;-0.00%'),
+        s(sig,false,sig==='GÜÇLÜ AL'?'00E676':sig==='AL'?'76FF03':sig==='SAT'?'FF1744':sig==='GÜÇLÜ SAT'?'D50000':'FFD600',rowBg,10,'center'),
+        s(p.added||now,false,'666680',rowBg,9,'center'),
+      ];
+      rowData.forEach((cell,ci)=>{ ws1[thCols[ci]+row]=cell; });
+    });
 
-  // ── SHEET 3: PERFORMANS ──────────────────────
-  const perf=[['PERFORMANS SIRALAMASI','','','',''],
-    ['HİSSE','MALİYET','ANL. FİYAT','K/Z (₺)','K/Z (%)']
-  ];
-  [...portfolio].map(p=>{
-    const cp=DB[p.symbol]?.price||p.cost; const tc=p.cost*p.qty; const tv=cp*p.qty;
-    return {sym:p.symbol,cost:p.cost,cp,pnl:tv-tc,pct:tc?(tv-tc)/tc*100:0};
-  }).sort((a,b)=>b.pct-a.pct).forEach(p=>{
-    perf.push([p.sym,p.cost,p.cp,p.pnl,p.pct/100]);
-  });
-  const ws3=XLSX.utils.aoa_to_sheet(perf);
-  ws3['!cols']=[{wch:10},{wch:14},{wch:14},{wch:14},{wch:12}];
-  XLSX.utils.book_append_sheet(wb, ws3, 'Performans');
+    // Toplam satır
+    const tRow = 8+portfolio.length+1;
+    ws1['A'+tRow] = s('TOPLAM',true,'FFD600','1A1A2E',11,'left');
+    ws1['G'+tRow] = s(totalVal,true,'E8E8F0','1A1A2E',11,'center','#,##0.00 ₺');
+    ws1['H'+tRow] = s(totalCost,true,'888899','1A1A2E',11,'center','#,##0.00 ₺');
+    ws1['I'+tRow] = s(totalPnl,true,totalPnl>=0?'00E676':'FF1744','1A1A2E',11,'center','+#,##0.00 ₺;-#,##0.00 ₺');
+    ws1['J'+tRow] = s(totalPct,true,totalPct>=0?'00E676':'FF1744','1A1A2E',11,'center','+0.00%;-0.00%');
 
-  XLSX.writeFile(wb, `portfoy_${now.replace(/\./g,'-')}.xlsx`);
-  notify('Portföy Excel indirildi ✅');
+    // Sütun genişlikleri
+    ws1['!cols'] = [{wch:10},{wch:22},{wch:16},{wch:7},{wch:16},{wch:14},{wch:16},{wch:16},{wch:16},{wch:12},{wch:12},{wch:12}];
+    // Satır yükseklikleri
+    ws1['!rows'] = [{hpt:36},{hpt:16},{hpt:8},{hpt:20},{hpt:36},{hpt:8}];
+    ws1['!ref'] = 'A1:L'+(tRow+1);
+    ws1['!merges'] = [{s:{r:0,c:0},e:{r:0,c:5}},{s:{r:1,c:0},e:{r:1,c:5}}];
+
+    XLSX.utils.book_append_sheet(wb, ws1, 'Dashboard');
+
+    // ── SHEET 2: SEKTÖR ANALİZİ ────────────────────────
+    const secMap={};
+    portfolio.forEach(p=>{
+      const d=DB[p.symbol]; const cp=d?.price||p.cost;
+      const sec=d?.sector||'Diğer';
+      if(!secMap[sec]) secMap[sec]={val:0,cost:0,count:0};
+      secMap[sec].val+=cp*p.qty;
+      secMap[sec].cost+=p.cost*p.qty;
+      secMap[sec].count++;
+    });
+    const secRows=[
+      [s('SEKTÖR ANALİZİ',true,'00E676','0D0D1A',14)],
+      [],
+      [s('SEKTÖR',true,'2979FF','0A0A18',9,'center'),s('POZİSYON',true,'2979FF','0A0A18',9,'center'),s('DEĞER',true,'2979FF','0A0A18',9,'center'),s('AĞIRLIK',true,'2979FF','0A0A18',9,'center'),s('K/Z ₺',true,'2979FF','0A0A18',9,'center'),s('K/Z %',true,'2979FF','0A0A18',9,'center')],
+      ...Object.entries(secMap).sort((a,b)=>b[1].val-a[1].val).map(([sec,d],i)=>{
+        const pnl=d.val-d.cost, pct=d.cost?pnl/d.cost:0, w=d.val/totalVal;
+        const bg=i%2===0?'141428':'0F0F20';
+        return [s(sec,false,'E8E8F0',bg,11),s(d.count,false,'888899',bg,11,'center'),s(d.val,false,'E8E8F0',bg,11,'center','#,##0.00 ₺'),s(w,false,'AAAACC',bg,11,'center','0.0%'),s(pnl,true,pnl>=0?'00E676':'FF1744',bg,11,'center','+#,##0.00 ₺;-#,##0.00 ₺'),s(pct,true,pnl>=0?'00E676':'FF1744',bg,11,'center','+0.00%;-0.00%')];
+      }),
+    ];
+    const ws2 = XLSX.utils.aoa_to_sheet(secRows);
+    ws2['!cols']=[{wch:18},{wch:10},{wch:16},{wch:10},{wch:16},{wch:12}];
+    XLSX.utils.book_append_sheet(wb, ws2, 'Sektör Analizi');
+
+    const fn='portfoy_'+now.replace(/\./g,'-')+'.xlsx';
+    XLSX.writeFile(wb, fn);
+    notify('📥 Excel dashboard indirildi ✅');
+  });
 }
-
-
 function removePort(i){const sym=portfolio[i].symbol;portfolio.splice(i,1);saveState();renderPortfolio();notify(`${sym} portföyden çıkarıldı`,true);}
 
 // ═══════════════════════════════════════════════════════
