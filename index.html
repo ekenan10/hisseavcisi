@@ -250,6 +250,16 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--m
 
 <!-- PORTFOLIO -->
 <div class="page" id="page-portfolio">
+  <!-- Portföy Başlık -->
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+    <div style="font-family:var(--display);font-size:15px;font-weight:700;color:var(--text)">📊 Portföy</div>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-ghost btn-sm" onclick="exportPortXLSX()" style="display:flex;align-items:center;gap:5px">
+        <span>📥</span><span>Excel</span>
+      </button>
+      <button class="btn btn-green btn-sm" onclick="openPortModal()">+ Pozisyon Ekle</button>
+    </div>
+  </div>
   <!-- KPI Kartları -->
   <div class="g5" id="port-kpis" style="margin-bottom:14px"></div>
   
@@ -293,10 +303,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--m
     <div class="card cp" style="grid-column:1/3">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
         <div class="ct" style="margin:0">POZİSYONLAR</div>
-        <div style="display:flex;gap:6px">
-          <button class="btn btn-ghost btn-sm" onclick="exportPortXLSX()">📥 Excel</button>
-          <button class="btn btn-green btn-sm" onclick="openPortModal()">+ Ekle</button>
-        </div>
+
       </div>
       <div style="overflow-x:auto"><table class="tbl">
         <thead><tr><th>HİSSE</th><th class="r">LOT</th><th class="r">MALİYET</th><th class="r">ANL.FİYAT</th><th class="r">DEĞER</th><th class="r">K/Z%</th><th>SİNYAL</th><th></th></tr></thead>
