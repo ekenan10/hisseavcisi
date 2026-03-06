@@ -291,3 +291,76 @@ def get_fundamentals(sym):
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=False)
+
+
+# ── Gerçek OHLCV endpoint ────────────────────────────────────
+ohlcv_cache = {}
+OHLCV_TTL   = 3600  # 1 saat
+
+@app.route('/api/ohlcv/<sym>')
+def get_ohlcv(sym):
+    sym = sym.upper()
+    period = request.args.get('period', '6mo')  # 6mo = ~130 mum
+    cache_key = f"{sym}_{period}"
+
+    if cache_ok(ohlcv_cache, cache_key, OHLCV_TTL):
+        d = {k: v for k, v in ohlcv_cache[cache_key].items() if not k.startswith('_')}
+        return jsonify({**d, 'cached': True})
+
+    try:
+        df = yf.download(
+            sym + '.IS',
+            period=period,
+            interval='1d',
+            auto_adjust=True,
+            progress=False,
+            threads=False
+        )
+
+        if df.empty:
+            return jsonify({'error': 'Veri yok'}), 404
+
+        # MultiIndex düzelt
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+
+        df = df.dropna(subset=['Close'])
+        df.index = pd.to_datetime(df.index)
+
+        ohlcv = []
+        for ts, row in df.iterrows():
+            try:
+                o = float(row['Open'])
+                h = float(row['High'])
+                l = float(row['Low'])
+                c = float(row['Close'])
+                v = int(row['Volume']) if not pd.isna(row['Volume']) else 0
+                ohlcv.append({
+                    't': ts.strftime('%Y-%m-%d'),
+                    'o': round(o, 2),
+                    'h': round(h, 2),
+                    'l': round(l, 2),
+                    'c': round(c, 2),
+                    'v': v
+                })
+            except:
+                continue
+
+        if len(ohlcv) < 10:
+            return jsonify({'error': 'Yetersiz veri'}), 404
+
+        result = {
+            'sym':    sym,
+            'ohlcv':  ohlcv,
+            'count':  len(ohlcv),
+            'from':   ohlcv[0]['t'],
+            'to':     ohlcv[-1]['t'],
+            '_ts':    time.time()
+        }
+        ohlcv_cache[cache_key] = result
+        out = {k: v for k, v in result.items() if not k.startswith('_')}
+        return jsonify({**out, 'cached': False})
+
+    except Exception as e:
+        print(f"OHLCV error {sym}: {e}")
+        return jsonify({'error': str(e)}), 500
