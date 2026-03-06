@@ -189,10 +189,11 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--m
     </div>
     <div style="display:flex;align-items:center;gap:6px">
       <div style="width:7px;height:7px;border-radius:50%;background:var(--green);animation:pulse 2s infinite"></div>
-      <div id="theme-picker" style="display:flex;gap:6px;align-items:center;margin-right:10px">
-        <div onclick="setTheme('cyber')"  title="Cyber (Varsayılan)"   style="width:14px;height:14px;border-radius:50%;background:linear-gradient(135deg,#00e676,#2979ff);cursor:pointer" id="th-cyber"></div>
-        <div onclick="setTheme('amber')"  title="Amber"  style="width:14px;height:14px;border-radius:50%;background:linear-gradient(135deg,#ffd600,#ff6d00);cursor:pointer" id="th-amber"></div>
-        <div onclick="setTheme('sakura')" title="Sakura" style="width:14px;height:14px;border-radius:50%;background:linear-gradient(135deg,#e040fb,#f06292);cursor:pointer" id="th-sakura"></div>
+      <div id="theme-picker" style="display:flex;gap:5px;align-items:center;margin-right:10px;background:rgba(255,255,255,0.05);border-radius:20px;padding:4px 8px;border:1px solid rgba(255,255,255,0.08)">
+        <span style="font-size:9px;color:#55557a;margin-right:2px">TEMA</span>
+        <div onclick="setTheme('cyber')"  title="Cyber" id="th-cyber"  style="width:18px;height:18px;border-radius:50%;background:linear-gradient(135deg,#00e676,#2979ff);cursor:pointer;transition:transform 0.2s" onmouseover="this.style.transform='scale(1.3)'" onmouseout="this.style.transform='scale(1)'"></div>
+        <div onclick="setTheme('amber')"  title="Amber" id="th-amber"  style="width:18px;height:18px;border-radius:50%;background:linear-gradient(135deg,#ffd600,#ff6d00);cursor:pointer;transition:transform 0.2s" onmouseover="this.style.transform='scale(1.3)'" onmouseout="this.style.transform='scale(1)'"></div>
+        <div onclick="setTheme('sakura')" title="Sakura" id="th-sakura" style="width:18px;height:18px;border-radius:50%;background:linear-gradient(135deg,#e040fb,#f06292);cursor:pointer;transition:transform 0.2s" onmouseover="this.style.transform='scale(1.3)'" onmouseout="this.style.transform='scale(1)'"></div>
       </div>
       <span id="clock" style="font-size:10px;color:var(--muted)">--:--:--</span>
     </div>
@@ -881,8 +882,11 @@ function setTheme(name){
   // Aktif tema göstergesi
   ['cyber','amber','sakura'].forEach(t=>{
     const el=document.getElementById('th-'+t);
-    if(el) el.style.outline=t===name?'2px solid var(--text)':'none';
-    if(el) el.style.outlineOffset='2px';
+    if(!el) return;
+    el.style.outline = t===name ? '3px solid #ffffff' : 'none';
+    el.style.outlineOffset = '2px';
+    el.style.transform = t===name ? 'scale(1.2)' : 'scale(1)';
+    el.style.boxShadow = t===name ? '0 0 8px rgba(255,255,255,0.4)' : 'none';
   });
   
   // Kaydet
@@ -1454,69 +1458,52 @@ function drawDonut(canvasId, centerId, legendId, data, title){
   const legendEl = document.getElementById(legendId);
   if(!canvas) return;
 
-  // HiDPI
-  const rect = canvas.getBoundingClientRect();
-  const dpr = window.devicePixelRatio||1;
-  canvas.width  = rect.width  * dpr || 400;
-  canvas.height = rect.height * dpr || 400;
-
+  // Sabit yüksek çözünürlük - CSS ile küçültülüyor
+  const W = 400, H = 400;
+  canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext('2d');
-  ctx.scale(dpr,dpr);
-  const W = rect.width||200, H = rect.height||200;
-  const cx=W/2, cy=H/2, R=Math.min(W,H)/2-10, r=R*0.54;
+  const cx=W/2, cy=H/2, R=W/2-16, r=R*0.54;
 
   ctx.clearRect(0,0,W,H);
-
-  // Arka çember
-  ctx.beginPath(); ctx.arc(cx,cy,R,0,Math.PI*2);
-  ctx.fillStyle='#141428'; ctx.fill();
+  ctx.fillStyle='#141428';
+  ctx.beginPath(); ctx.arc(cx,cy,R,0,Math.PI*2); ctx.fill();
 
   if(!data.length){
-    ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2);
-    ctx.fillStyle='#04040e'; ctx.fill();
+    ctx.fillStyle='#04040e';
+    ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.fill();
     return;
   }
 
   const total = data.reduce((s,d)=>s+d.value,0);
   let angle = -Math.PI/2;
-  const GAP = 0.03; // dilimler arası boşluk
+  const GAP = 0.025;
 
-  data.forEach((d,i)=>{
+  data.forEach((d)=>{
     const sweep = (d.value/total)*Math.PI*2 - GAP;
     if(sweep<=0) return;
-
-    // Gölge
-    ctx.shadowColor = d.color+'66';
-    ctx.shadowBlur = 10;
-
+    ctx.shadowColor = d.color+'55'; ctx.shadowBlur = 14;
     ctx.beginPath();
     ctx.moveTo(cx,cy);
     ctx.arc(cx,cy,R,angle+GAP/2,angle+sweep+GAP/2);
     ctx.closePath();
-    ctx.fillStyle = d.color;
-    ctx.fill();
+    ctx.fillStyle = d.color; ctx.fill();
     ctx.shadowBlur = 0;
     angle += sweep + GAP;
   });
 
-  // İç daire (donut deliği)
+  // Donut deliği
   ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2);
   ctx.fillStyle='#04040e'; ctx.fill();
-
-  // İç halka kenarı
   ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2);
-  ctx.strokeStyle='rgba(255,255,255,0.05)'; ctx.lineWidth=1; ctx.stroke();
+  ctx.strokeStyle='rgba(255,255,255,0.06)'; ctx.lineWidth=2; ctx.stroke();
 
-  // Ortada metin
   if(centerEl){
-    centerEl.innerHTML=`<div style="font-size:9px;color:#666680;font-family:monospace;margin-bottom:2px">${title}</div><div style="font-size:13px;font-weight:700;color:#e8e8f0">₺${(total/1000).toFixed(0)}K</div>`;
+    centerEl.innerHTML=`<div style="font-size:11px;color:#666680;font-family:monospace">${title}</div><div style="font-size:15px;font-weight:700;color:#e8e8f0">₺${total>=1e6?(total/1e6).toFixed(1)+'M':(total/1000).toFixed(0)+'K'}</div>`;
   }
-
-  // Legend
   if(legendEl){
-    legendEl.innerHTML = data.slice(0,7).map(d=>`
+    legendEl.innerHTML = data.slice(0,8).map(d=>`
       <div style="display:flex;justify-content:space-between;align-items:center;font-size:10px;padding:2px 0">
-        <div style="display:flex;align-items:center;gap:6px">
+        <div style="display:flex;align-items:center;gap:5px">
           <div style="width:8px;height:8px;border-radius:2px;background:${d.color};flex-shrink:0"></div>
           <span style="color:#c8c8e0">${d.label}</span>
         </div>
@@ -1529,79 +1516,78 @@ function drawDonut(canvasId, centerId, legendId, data, title){
 function drawBarPnl(canvasId, data){
   const canvas = document.getElementById(canvasId);
   if(!canvas||!data||!data.length) return;
-  
-  // HiDPI: CSS boyutu vs piksel boyutu
-  const rect = canvas.getBoundingClientRect();
-  const dpr = window.devicePixelRatio || 1;
-  canvas.width  = rect.width  * dpr;
-  canvas.height = rect.height * dpr;
-  
+
+  // Sabit yüksek çözünürlük
+  const W = 600, H = 360;
+  canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext('2d');
-  ctx.scale(dpr, dpr);
-  const W = rect.width, H = rect.height;
   ctx.clearRect(0,0,W,H);
 
   const n = data.length;
-  if(n===0) return;
-  const pad = {l:12,r:12,t:24,b:32};
+  const pad = {l:16,r:16,t:30,b:38};
   const cw = W-pad.l-pad.r, ch = H-pad.t-pad.b;
-  const bw = Math.max(8, Math.floor(cw/n) - 4);
+  const bw = Math.max(12, Math.floor(cw/n) - 6);
   const maxAbs = Math.max(...data.map(d=>Math.abs(d.value)), 0.01);
   const zero = pad.t + ch/2;
 
-  // Arka plan çizgileri
-  ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+  // Grid çizgileri
+  ctx.strokeStyle = 'rgba(255,255,255,0.05)';
   ctx.lineWidth = 1;
   [0.25,0.5,0.75,1].forEach(f=>{
-    const y1 = pad.t + ch*f/2;
-    const y2 = pad.t + ch - ch*f/2;
+    const y1 = pad.t + (ch/2)*f;
+    const y2 = pad.t + ch/2 + (ch/2)*f;
     ctx.beginPath(); ctx.moveTo(pad.l,y1); ctx.lineTo(W-pad.r,y1); ctx.stroke();
-    if(y1!==y2){ctx.beginPath(); ctx.moveTo(pad.l,y2); ctx.lineTo(W-pad.r,y2); ctx.stroke();}
+    if(f>0){ctx.beginPath(); ctx.moveTo(pad.l,y2); ctx.lineTo(W-pad.r,y2); ctx.stroke();}
   });
 
   // Zero line
-  ctx.strokeStyle = 'rgba(255,255,255,0.15)';
-  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+  ctx.lineWidth = 2;
   ctx.beginPath(); ctx.moveTo(pad.l,zero); ctx.lineTo(W-pad.r,zero); ctx.stroke();
 
   data.forEach((d,i)=>{
-    const x = pad.l + i*(cw/n) + (cw/n - bw)/2;
-    const barH = Math.max(2, (Math.abs(d.value)/maxAbs)*(ch/2)*0.88);
-    const y = d.value >= 0 ? zero-barH : zero;
+    const slotW = cw/n;
+    const x = pad.l + i*slotW + (slotW-bw)/2;
+    const barH = Math.max(3, (Math.abs(d.value)/maxAbs)*(ch/2)*0.88);
+    const y = d.value>=0 ? zero-barH : zero;
     const color = d.value>=0 ? (COLORS[0]||'#00e676') : '#ff1744';
 
-    // Bar gölgesi
-    ctx.shadowColor = color+'88';
-    ctx.shadowBlur = 8;
-
-    // Bar
-    const radius = Math.min(4, bw/3);
+    // Gradient fill
+    const grad = ctx.createLinearGradient(x, y, x, y+barH);
+    grad.addColorStop(0, color);
+    grad.addColorStop(1, color+'44');
+    
+    ctx.shadowColor = color+'66'; ctx.shadowBlur = 10;
+    
+    // Rounded bar
+    const rad = Math.min(5, bw/3);
     ctx.beginPath();
-    if(d.value>=0){
-      ctx.roundRect ? ctx.roundRect(x,y,bw,barH,radius) : ctx.rect(x,y,bw,barH);
-    } else {
-      ctx.roundRect ? ctx.roundRect(x,y,bw,barH,radius) : ctx.rect(x,y,bw,barH);
-    }
-    ctx.fillStyle = color;
+    ctx.moveTo(x+rad, y);
+    ctx.lineTo(x+bw-rad, y);
+    ctx.arcTo(x+bw, y, x+bw, y+rad, rad);
+    ctx.lineTo(x+bw, y+barH-rad);
+    ctx.arcTo(x+bw, y+barH, x+bw-rad, y+barH, rad);
+    ctx.lineTo(x+rad, y+barH);
+    ctx.arcTo(x, y+barH, x, y+barH-rad, rad);
+    ctx.lineTo(x, y+rad);
+    ctx.arcTo(x, y, x+rad, y, rad);
+    ctx.closePath();
+    ctx.fillStyle = grad;
     ctx.fill();
     ctx.shadowBlur = 0;
 
     // Değer etiketi
     ctx.fillStyle = color;
-    ctx.font = `bold ${Math.max(8,Math.min(11,bw*0.6))}px JetBrains Mono, monospace`;
+    ctx.font = `bold ${Math.max(10,Math.min(13,bw*0.45))}px monospace`;
     ctx.textAlign = 'center';
     const valStr = (d.value>=0?'+':'')+d.value.toFixed(1)+'%';
-    if(d.value>=0){
-      ctx.fillText(valStr, x+bw/2, y-5);
-    } else {
-      ctx.fillText(valStr, x+bw/2, y+barH+14);
-    }
+    ctx.fillText(valStr, x+bw/2, d.value>=0 ? y-8 : y+barH+16);
 
-    // Sembol etiketi
+    // Sembol
     ctx.fillStyle = '#888899';
-    ctx.font = `${Math.max(7,Math.min(10,bw*0.55))}px JetBrains Mono, monospace`;
+    ctx.font = `${Math.max(9,Math.min(11,bw*0.4))}px monospace`;
     const lbl = d.label.length>5 ? d.label.substring(0,5) : d.label;
-    ctx.fillText(lbl, x+bw/2, H-10);
+    ctx.fillText(lbl, x+bw/2, H-12);
   });
 }
 
@@ -1733,9 +1719,19 @@ function exportPortXLSX(){
 
   const loadExcelJS = (cb) => {
     if(window.ExcelJS){ cb(); return; }
+    notify('Excel kütüphanesi yükleniyor...');
     const s=document.createElement('script');
-    s.src='https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js';
-    s.onload=cb; s.onerror=()=>{ exportPortCSV(); }; // fallback
+    // ExcelJS tam sürüm - renk desteği olan
+    s.src='https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js';
+    s.onload=()=>{ notify(''); cb(); };
+    s.onerror=()=>{ 
+      // Fallback: unpkg
+      const s2=document.createElement('script');
+      s2.src='https://unpkg.com/exceljs@4.4.0/dist/exceljs.min.js';
+      s2.onload=()=>{ cb(); };
+      s2.onerror=()=>{ exportPortCSV(); notify('Excel yüklenemedi, CSV indiriliyor', true); };
+      document.head.appendChild(s2);
+    };
     document.head.appendChild(s);
   };
 
