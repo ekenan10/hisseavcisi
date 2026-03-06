@@ -1131,25 +1131,45 @@ function openDetail(sym){
 }
 
 let selectedCompPeriod = '1A';
+const compCache = {};
 
 function setCompPeriod(sym, period){
   selectedCompPeriod = period;
-  // Aktif butonu güncelle
   ['1H','1A','3A','1Y'].forEach(p=>{
     const btn = document.getElementById('cp-'+sym+'-'+p);
-    if(!btn) return;
-    btn.className = 'btn btn-sm '+(p===period?'btn-green':'btn-ghost');
+    if(btn) btn.className='btn btn-sm '+(p===period?'btn-green':'btn-ghost');
   });
   drawCompChart(sym, period);
 }
 
-function drawCompChart(sym, period){
+async function drawCompChart(sym, period){
   const canvas = document.getElementById('comp-chart-'+sym);
   const legendEl = document.getElementById('comp-legend-'+sym);
   if(!canvas) return;
 
+  const d = DB[sym];
+  const sector = d?.sector||'';
+  const cacheKey = sym+'_'+period;
+
+  // Loading göster
+  if(legendEl) legendEl.innerHTML='<span style="color:#555;font-size:10px">⟳ Yükleniyor...</span>';
+
+  let compData = compCache[cacheKey];
+
+  if(!compData){
+    try{
+      const res = await fetch(API_URL+'/api/compare/'+sym+'?period='+period+'&sector='+encodeURIComponent(sector), {signal:AbortSignal.timeout(12000)});
+      compData = await res.json();
+      if(compData.sym && compData.sym.length>0) compCache[cacheKey] = compData;
+    } catch(e){
+      // Fallback: simüle
+      compData = null;
+    }
+  }
+
+  // Canvas ayarla
   const cssW = canvas.offsetWidth || 320;
-  const cssH = 140;
+  const cssH = 150;
   const dpr = window.devicePixelRatio||2;
   canvas.width = cssW*dpr; canvas.height = cssH*dpr;
   canvas.style.width = cssW+'px'; canvas.style.height = cssH+'px';
@@ -1158,119 +1178,129 @@ function drawCompChart(sym, period){
   const W=cssW, H=cssH;
   ctx.clearRect(0,0,W,H);
 
-  // Periyod → gün sayısı
-  const days = period==='1H'?5:period==='1A'?21:period==='3A'?63:252;
+  // Veri hazırla
+  let hNorm=[], bNorm=[], sNorm=[], dates=[], secAvail=false, secName='';
 
-  // Hisse verisi
-  const d = DB[sym];
-  if(!d||!d.ohlc||d.ohlc.length<2) return;
-  const hOHLC = d.ohlc.slice(-Math.min(days,d.ohlc.length));
+  if(compData && compData.sym && compData.sym.length>1){
+    hNorm = compData.sym;
+    bNorm = compData.bist||[];
+    sNorm = compData.sector||[];
+    dates = compData.dates||[];
+    secAvail = compData.sector_available&&sNorm.length>0;
+    secName = compData.sector_name||sector;
+  } else {
+    // Simüle fallback - OHLC'den normalize et
+    const ohlc = d?.ohlc||[];
+    const days = period==='1H'?5:period==='1A'?21:period==='3A'?63:252;
+    const slice = ohlc.slice(-Math.min(days,ohlc.length));
+    if(slice.length<2){
+      if(legendEl) legendEl.innerHTML='<span style="color:#666;font-size:10px">Veri yok</span>';
+      return;
+    }
+    const base=slice[0].c;
+    hNorm = slice.map(c=>parseFloat(((c.c/base-1)*100).toFixed(2)));
+    // BIST simüle - tüm hisselerin ortalaması
+    const allStocks=Object.values(DB).slice(0,50);
+    bNorm = slice.map((_,i)=>{
+      const avg=allStocks.reduce((s,st)=>{
+        const sl=st.ohlc.slice(-Math.min(days,st.ohlc.length));
+        return s+(sl[i]?.c||sl[0]?.c||0);
+      },0)/allStocks.length;
+      const avgBase=allStocks.reduce((s,st)=>{const sl=st.ohlc.slice(-Math.min(days,st.ohlc.length));return s+(sl[0]?.c||0);},0)/allStocks.length;
+      return parseFloat(((avg/avgBase-1)*100).toFixed(2));
+    });
+    // Sektör simüle
+    const secStocks=Object.entries(DB).filter(([k,v])=>v.sector===sector&&k!==sym).slice(0,10);
+    if(secStocks.length){
+      sNorm = slice.map((_,i)=>{
+        const avg=secStocks.reduce((s,[k,v])=>{const sl=v.ohlc.slice(-Math.min(days,v.ohlc.length));return s+(sl[i]?.c||sl[0]?.c||0);},0)/secStocks.length;
+        const avgBase=secStocks.reduce((s,[k,v])=>{const sl=v.ohlc.slice(-Math.min(days,v.ohlc.length));return s+(sl[0]?.c||0);},0)/secStocks.length;
+        return parseFloat(((avg/avgBase-1)*100).toFixed(2));
+      });
+      secAvail=true; secName=sector;
+    }
+    if(compData?.error) console.warn('Compare API:', compData.error);
+  }
 
-  // BIST100 simüle — tüm hisselerin ortalaması
-  const bist = hOHLC.map((_,i)=>{
-    const allStocks = Object.values(DB);
-    const avgChg = allStocks.reduce((s,stock)=>{
-      const slice = stock.ohlc.slice(-Math.min(days,stock.ohlc.length));
-      if(slice.length<2) return s;
-      return s + (slice[i]?.c||slice[0].c);
-    },0) / allStocks.length;
-    return avgChg;
-  });
-
-  // Sektör ortalaması
-  const sectorStocks = Object.entries(DB).filter(([k,v])=>v.sector===d.sector&&k!==sym);
-  const secData = hOHLC.map((_,i)=>{
-    if(!sectorStocks.length) return null;
-    return sectorStocks.reduce((s,[k,v])=>{
-      const slice = v.ohlc.slice(-Math.min(days,v.ohlc.length));
-      return s+(slice[i]?.c||slice[0].c);
-    },0)/sectorStocks.length;
-  });
-
-  // Normalize: başlangıç=100
-  const normalize = (arr) => {
-    const base = arr[0]||1;
-    return arr.map(v=>(v/base-1)*100);
-  };
-
-  const hNorm = normalize(hOHLC.map(c=>c.c));
-  const bNorm = normalize(bist);
-  const sNorm = sectorStocks.length ? normalize(secData.filter(Boolean)) : null;
+  if(!hNorm.length){
+    if(legendEl) legendEl.innerHTML='<span style="color:#666;font-size:10px">Veri alınamadı</span>';
+    return;
+  }
 
   // Çizim
-  const pad={l:8,r:8,t:10,b:24};
+  const pad={l:12,r:48,t:14,b:28};
   const cw=W-pad.l-pad.r, ch=H-pad.t-pad.b;
-
-  const allVals = [...hNorm,...bNorm,...(sNorm||[])];
-  const minV=Math.min(...allVals)-1, maxV=Math.max(...allVals)+1;
+  const allVals=[...hNorm,...bNorm,...(secAvail?sNorm:[])];
+  const minV=Math.min(...allVals)-0.5, maxV=Math.max(...allVals)+0.5;
   const range=maxV-minV||1;
-
-  const toY = v => pad.t + ch - ((v-minV)/range)*ch;
-  const toX = (i,n) => pad.l + (i/(n-1||1))*cw;
+  const toY=v=>pad.t+ch-((v-minV)/range)*ch;
+  const toX=(i,n)=>pad.l+(i/Math.max(n-1,1))*cw;
 
   // Grid
   ctx.strokeStyle='rgba(255,255,255,0.05)'; ctx.lineWidth=1;
   [0,0.25,0.5,0.75,1].forEach(f=>{
     const y=pad.t+ch*f;
     ctx.beginPath(); ctx.moveTo(pad.l,y); ctx.lineTo(W-pad.r,y); ctx.stroke();
+    // Y ekseni değeri
+    const val=maxV-(f*range);
+    ctx.fillStyle='#333355'; ctx.font='8px monospace'; ctx.textAlign='right';
+    ctx.fillText((val>=0?'+':'')+val.toFixed(1)+'%', pad.l-2, y+3);
   });
 
   // Zero line
   const z0=toY(0);
-  ctx.strokeStyle='rgba(255,255,255,0.15)'; ctx.lineWidth=1.5;
-  ctx.beginPath(); ctx.moveTo(pad.l,z0); ctx.lineTo(W-pad.r,z0); ctx.stroke();
+  if(z0>=pad.t && z0<=pad.t+ch){
+    ctx.strokeStyle='rgba(255,255,255,0.2)'; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.moveTo(pad.l,z0); ctx.lineTo(W-pad.r,z0); ctx.stroke();
+  }
 
-  const drawLine=(data,color,dash=[])=>{
+  const drawLine=(data,color,dash=[],lw=2)=>{
     if(!data||data.length<2) return;
-    ctx.beginPath();
-    ctx.strokeStyle=color; ctx.lineWidth=2;
-    ctx.setLineDash(dash);
-    ctx.shadowColor=color+'66'; ctx.shadowBlur=4;
-    data.forEach((v,i)=>{
-      i===0?ctx.moveTo(toX(i,data.length),toY(v)):ctx.lineTo(toX(i,data.length),toY(v));
-    });
-    ctx.stroke();
-    ctx.setLineDash([]); ctx.shadowBlur=0;
+    ctx.beginPath(); ctx.strokeStyle=color; ctx.lineWidth=lw;
+    ctx.setLineDash(dash); ctx.shadowColor=color+'55'; ctx.shadowBlur=5;
+    data.forEach((v,i)=>i===0?ctx.moveTo(toX(i,data.length),toY(v)):ctx.lineTo(toX(i,data.length),toY(v)));
+    ctx.stroke(); ctx.setLineDash([]); ctx.shadowBlur=0;
+    // Son değer etiketi
+    const last=data[data.length-1];
+    const lastX=toX(data.length-1,data.length);
+    const lastY=toY(last);
+    ctx.fillStyle=color; ctx.font='bold 9px monospace'; ctx.textAlign='left';
+    ctx.fillText((last>=0?'+':'')+last.toFixed(1)+'%', lastX+4, lastY+3);
   };
 
-  // Sektör (kesik çizgi)
-  if(sNorm) drawLine(sNorm, '#ffd600', [4,3]);
-  // BIST (noktalı)
-  drawLine(bNorm, '#2979ff', [2,2]);
-  // Hisse (düz, kalın)
-  ctx.lineWidth=2.5;
-  drawLine(hNorm, COLORS[0]||'#00e676');
+  // Sektör (kesik sarı)
+  if(secAvail) drawLine(sNorm,'#ffd600',[4,3],1.5);
+  // BIST100 (noktalı mavi)
+  drawLine(bNorm,'#2979ff',[2,2],1.5);
+  // Hisse (düz kalın yeşil/kırmızı)
+  const hColor = COLORS[0]||'#00e676';
+  drawLine(hNorm, hColor, [], 2.5);
 
-  // Son değer etiketleri
-  [[hNorm,COLORS[0]||'#00e676',sym],[bNorm,'#2979ff','BİST'],[sNorm,'#ffd600',d.sector?.substring(0,6)]].forEach(([data,color,lbl])=>{
-    if(!data||!data.length) return;
-    const last=data[data.length-1];
-    ctx.fillStyle=color; ctx.font='bold 9px monospace'; ctx.textAlign='right';
-    const pct=(last>=0?'+':'')+last.toFixed(1)+'%';
-    ctx.fillText(pct, W-pad.r-2, toY(last)-4);
-  });
-
-  // X ekseni etiketleri
-  ctx.fillStyle='#444466'; ctx.font='8px monospace'; ctx.textAlign='center';
-  const labels=period==='1H'?['Pzt','Sal','Çar','Per','Cum']:
-                period==='1A'?['4H','3H','2H','1H','Bu H']:
-                period==='3A'?['3A','2A','1A','2H','Bu']:['1Y','9A','6A','3A','Bu'];
-  labels.forEach((l,i)=>ctx.fillText(l, toX(Math.floor(i*(hNorm.length-1)/(labels.length-1)),hNorm.length),H-8));
+  // X ekseni tarih etiketleri
+  if(dates.length>1){
+    ctx.fillStyle='#333355'; ctx.font='8px monospace'; ctx.textAlign='center';
+    const step=Math.max(1,Math.floor(dates.length/5));
+    for(let i=0;i<dates.length;i+=step){
+      ctx.fillText(dates[i], toX(i,dates.length), H-10);
+    }
+  }
 
   // Legend
   if(legendEl){
-    const lastH=hNorm[hNorm.length-1], lastB=bNorm[bNorm.length-1];
-    const lastS=sNorm?sNorm[sNorm.length-1]:null;
-    const items=[[COLORS[0]||'#00e676',sym,lastH],['#2979ff','BİST100',lastB]];
-    if(lastS!==null&&sectorStocks.length) items.push(['#ffd600',d.sector,lastS]);
-    legendEl.innerHTML=items.map(([c,l,v])=>`
+    const lastH=hNorm[hNorm.length-1];
+    const lastB=bNorm.length?bNorm[bNorm.length-1]:null;
+    const lastS=secAvail&&sNorm.length?sNorm[sNorm.length-1]:null;
+    const items=[[hColor,sym,lastH],['#2979ff','BİST100',lastB]];
+    if(lastS!==null) items.push(['#ffd600',secName.substring(0,12),lastS]);
+    legendEl.innerHTML=items.filter(([,, v])=>v!==null).map(([c,l,v])=>`
       <div style="display:flex;align-items:center;gap:5px;font-size:10px">
-        <div style="width:16px;height:2px;background:${c};border-radius:1px"></div>
+        <div style="width:18px;height:2px;background:${c};border-radius:1px"></div>
         <span style="color:#888899">${l}</span>
-        <span style="color:${v>=0?'var(--green)':'var(--red)'};font-weight:700">${v>=0?'+':''}${v.toFixed(1)}%</span>
+        <span style="color:${v>=0?'var(--green)':'var(--red)'};font-weight:700">${v>=0?'+':''}${v.toFixed(2)}%</span>
       </div>`).join('');
   }
 }
+
 
 function renderDetail(sym){
   const d=DB[sym], sig=d.signals[selectedTF];
