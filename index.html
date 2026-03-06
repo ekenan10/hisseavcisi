@@ -1476,7 +1476,7 @@ function renderDetail(sym){
       }
     </div>
     <div id="fin-${sym}">
-    ${d.fin._real ? renderFin(d.fin) : `<div style="text-align:center;padding:16px;color:var(--muted);font-size:11px">Gerçek veri için "Yükle" tıklayın</div>`}
+    ${d.fin._real ? renderFin(d.fin) : `<div style="text-align:center;padding:20px;color:var(--muted);font-size:11px"><span style="opacity:0.5">⟳ Yükleniyor...</span></div>`}
     </div>
   </div>`;
 
@@ -1489,6 +1489,10 @@ function renderDetail(sym){
   // Load TV widget
   setTimeout(()=>loadTV(sym,'D'), 50);
   setTimeout(()=>drawCompChart(sym, selectedCompPeriod||'1A'), 80);
+  // Bilanço otomatik yükle (gerçek veri yoksa)
+  if(!DB[sym]?.fin?._real){
+    setTimeout(()=>loadFin(sym), 300);
+  }
 }
 
 function renderFin(f){

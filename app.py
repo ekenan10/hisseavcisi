@@ -1,8 +1,9 @@
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 import yfinance as yf
+import pandas as pd
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "*"}})
@@ -12,7 +13,50 @@ fin_cache   = {}
 comp_cache  = {}
 PRICE_TTL   = 120
 FIN_TTL     = 7200
-COMP_TTL    = 3600  # 1 saat
+COMP_TTL    = 3600
+
+# BIST sektör endeksleri — tam liste
+SECTOR_ETF = {
+    'Bankacılık':  'XBANK.IS',
+    'Holding':     'XHOLD.IS',
+    'Teknoloji':   'XUTEK.IS',
+    'Sanayi':      'XUSIN.IS',
+    'GYO':         'XGMYO.IS',
+    'Enerji':      'XELKT.IS',
+    'Perakende':   'XTCRT.IS',
+    'Kimya':       'XKMYA.IS',
+    'Metal':       'XMANA.IS',
+    'Gıda':        'XGIDA.IS',
+    'Tekstil':     'XTEKS.IS',
+    'Ulaştırma':   'XULAS.IS',
+    'Havacılık':   'XULAS.IS',   # Ulaştırma endeksine dahil
+    'Lojistik':    'XULAS.IS',
+    'Otomotiv':    'XMOTO.IS',
+    'Çimento':     'XNONM.IS',
+    'Cam':         'XNONM.IS',
+    'Seramik':     'XNONM.IS',
+    'İnşaat':      'XNONM.IS',
+    'Madencilik':  'XMADN.IS',
+    'Sigorta':     'XSGRT.IS',
+    'Finans':      'XFINK.IS',
+    'İçecek':      'XGIDA.IS',
+    'Tarım':       'XGIDA.IS',
+    'İlaç':        'XSAGX.IS',
+    'Sağlık':      'XSAGX.IS',
+    'Telekom':     'XUTEK.IS',
+    'Medya':       'XUTEK.IS',
+    'Savunma':     'XUSIN.IS',
+    'Makina':      'XUSIN.IS',
+    'Elektrik':    'XELKT.IS',
+    'Kağıt':       'XKAGT.IS',
+    'Ambalaj':     'XKAGT.IS',
+    'Plastik':     'XKMYA.IS',
+    'Turizm':      'XTRZM.IS',
+    'Spor':        'XSPOR.IS',
+    'Beyaz Eşya':  'XMOTO.IS',
+    'Lastik':      'XMOTO.IS',
+    'Kırtasiye':   'XUSIN.IS',
+}
 
 def cache_ok(cache, key, ttl):
     c = cache.get(key)
@@ -49,7 +93,6 @@ def get_prices():
             try:
                 data = yf.download(tickers_str, period='2d', interval='1d',
                     auto_adjust=True, progress=False, threads=False)
-                import pandas as pd
                 if data.empty: continue
                 if isinstance(data.columns, pd.MultiIndex):
                     closes = data['Close']
@@ -83,13 +126,41 @@ def get_prices():
     return jsonify({'prices': result, 'ts': datetime.now().strftime('%H:%M:%S'),
                     'count': len([v for v in result.values() if v.get('price')])})
 
+
+def safe_extract(data, ticker):
+    """MultiIndex veya tekli DataFrame'den Close serisini güvenle çıkar."""
+    try:
+        if isinstance(data.columns, pd.MultiIndex):
+            if ('Close', ticker) in data.columns:
+                s = data[('Close', ticker)].dropna()
+                return s.values.tolist(), [d.strftime('%d.%m') for d in s.index]
+        else:
+            if 'Close' in data.columns:
+                s = data['Close'].dropna()
+                return s.values.tolist(), [d.strftime('%d.%m') for d in s.index]
+    except Exception as e:
+        print(f"safe_extract {ticker}: {e}")
+    return [], []
+
+
+def normalize(closes):
+    if not closes or closes[0] == 0:
+        return []
+    base = closes[0]
+    return [round((v / base - 1) * 100, 2) for v in closes]
+
+
 @app.route('/api/compare/<sym>')
 def compare(sym):
     sym = sym.upper()
-    period = request.args.get('period', '1mo')  # 1wk, 1mo, 3mo, 1y
-    sector = request.args.get('sector', '')
-    
-    # Periyod → yfinance parametreleri
+    period  = request.args.get('period', '1A')
+    sector  = request.args.get('sector', '')
+    cache_key = f"{sym}_{period}"
+
+    if cache_ok(comp_cache, cache_key, COMP_TTL):
+        d = {k: v for k, v in comp_cache[cache_key].items() if not k.startswith('_')}
+        return jsonify({**d, 'cached': True})
+
     period_map = {
         '1H': ('5d',  '1d'),
         '1A': ('1mo', '1d'),
@@ -97,143 +168,126 @@ def compare(sym):
         '1Y': ('1y',  '1wk'),
     }
     yf_period, yf_interval = period_map.get(period, ('1mo', '1d'))
-    cache_key = f"{sym}_{period}"
-    
-    if cache_ok(comp_cache, cache_key, COMP_TTL):
-        data = {k: v for k, v in comp_cache[cache_key].items() if not k.startswith('_')}
-        return jsonify({**data, 'cached': True})
-    
+
+    sec_etf = SECTOR_ETF.get(sector)
+    tickers = [sym + '.IS', 'XU100.IS']
+    if sec_etf:
+        tickers.append(sec_etf)
+
     try:
-        # Hisse + BIST100 + sektör ETF'i birlikte çek
-        # BIST100 = XU100.IS
-        # Sektör mapping
-        sector_etf = {
-            'Bankacılık': 'XBANK.IS',
-            'Holding': 'XHOLD.IS',
-            'Teknoloji': 'XUTEK.IS',
-            'Sanayi': 'XUSIN.IS',
-            'Mali': 'XMALI.IS',
-            'Kimya': 'XKMYA.IS',
-            'Metal': 'XMANA.IS',
-            'Enerji': 'XELKT.IS',
-            'Perakende': 'XTCRT.IS',
-            'GYO': 'XGMYO.IS',
-            'Savunma': None,
-            'Havacılık': None,
-        }
-        
-        sec_ticker = sector_etf.get(sector)
-        tickers = [sym+'.IS', 'XU100.IS']
-        if sec_ticker:
-            tickers.append(sec_ticker)
-        
-        raw = yf.download(' '.join(tickers), period=yf_period, interval=yf_interval,
-                         auto_adjust=True, progress=False, threads=False)
-        
-        import pandas as pd
-        
-        def extract_closes(data, ticker):
-            try:
-                if isinstance(data.columns, pd.MultiIndex):
-                    # ExcelJS MultiIndex: ('Close', 'TICKER.IS')
-                    for key in [('Close', ticker), ('Close', ticker.upper())]:
-                        if key in data.columns:
-                            vals = data[key].dropna()
-                            if len(vals) > 1:
-                                return vals.tolist()
-                    # Alternatif: xs ile
-                    try:
-                        vals = data.xs(ticker, axis=1, level=1)['Close'].dropna()
-                        if len(vals) > 1:
-                            return vals.tolist()
-                    except: pass
-                    return []
-                else:
-                    # Tek ticker
-                    if 'Close' in data.columns:
-                        return data['Close'].dropna().tolist()
-                    return []
-            except Exception as ex:
-                print(f"extract_closes error {ticker}: {ex}")
-                return []
-        
-        hisse_closes  = extract_closes(raw, sym+'.IS')
-        bist_closes   = extract_closes(raw, 'XU100.IS')
-        sec_closes    = extract_closes(raw, sec_ticker) if sec_ticker else []
-        
-        # Normalize: başlangıç = 0, yüzde değişim
-        def normalize(closes):
-            if not closes or closes[0] == 0:
-                return []
-            base = closes[0]
-            return [round((v/base - 1)*100, 2) for v in closes]
-        
-        # Tarihler
-        dates = []
-        try:
-            if isinstance(raw.index, pd.DatetimeIndex):
-                dates = [d.strftime('%d.%m') for d in raw.index]
-        except: pass
-        
+        raw = yf.download(
+            ' '.join(tickers),
+            period=yf_period,
+            interval=yf_interval,
+            auto_adjust=True,
+            progress=False,
+            threads=False
+        )
+
+        if raw.empty:
+            return jsonify({'error': 'Veri boş'}), 500
+
+        hisse_c, dates = safe_extract(raw, sym + '.IS')
+        bist_c,  _     = safe_extract(raw, 'XU100.IS')
+        sec_c,   _     = safe_extract(raw, sec_etf) if sec_etf else ([], [])
+
         result = {
-            'sym': normalize(hisse_closes),
-            'bist': normalize(bist_closes),
-            'sector': normalize(sec_closes),
-            'sector_name': sector or '',
-            'sector_available': bool(sec_closes),
-            'dates': dates,
-            'period': period,
-            '_ts': time.time()
+            'sym':              normalize(hisse_c),
+            'bist':             normalize(bist_c),
+            'sector':           normalize(sec_c),
+            'sector_name':      sector,
+            'sector_etf':       sec_etf or '',
+            'sector_available': len(sec_c) > 1,
+            'dates':            dates,
+            'period':           period,
+            'data_points':      len(hisse_c),
+            '_ts':              time.time()
         }
         comp_cache[cache_key] = result
-        data = {k: v for k, v in result.items() if not k.startswith('_')}
-        return jsonify({**data, 'cached': False})
-        
+        out = {k: v for k, v in result.items() if not k.startswith('_')}
+        return jsonify({**out, 'cached': False})
+
     except Exception as e:
+        print(f"Compare error {sym}: {e}")
         return jsonify({'error': str(e)}), 500
+
 
 @app.route('/api/fundamentals/<sym>')
 def get_fundamentals(sym):
     sym = sym.upper()
     if cache_ok(fin_cache, sym, FIN_TTL):
-        data = {k: v for k, v in fin_cache[sym].items() if not k.startswith('_')}
-        return jsonify({'data': data, 'cached': True})
-    
+        d = {k: v for k, v in fin_cache[sym].items() if not k.startswith('_')}
+        return jsonify({'data': d, 'cached': True})
+
     last_err = None
     for attempt in range(3):
         try:
             if attempt > 0:
-                time.sleep(2 * attempt)
-            info = yf.Ticker(sym + '.IS').info
-            if not info or len(info) < 5:
-                raise Exception('Boş veri')
+                time.sleep(3 * attempt)
+
+            t = yf.Ticker(sym + '.IS')
+
+            # fast_info daha güvenilir
+            try:
+                fi = t.fast_info
+                price = round(float(fi.last_price), 2) if fi.last_price else None
+                mktcap = int(fi.market_cap) if fi.market_cap else None
+            except:
+                price, mktcap = None, None
+
+            # info — bazı alanlar burada
+            info = {}
+            try:
+                info = t.info or {}
+            except:
+                pass
+
+            if not info and price is None:
+                raise Exception('Veri alınamadı')
+
             eps   = info.get('trailingEps')
             bvps  = info.get('bookValue')
-            price = info.get('currentPrice') or info.get('regularMarketPrice', 0)
-            graham = round((22.5*eps*bvps)**0.5, 2) if eps and bvps and eps>0 and bvps>0 else None
+            if price is None:
+                price = info.get('currentPrice') or info.get('regularMarketPrice', 0) or 0
+
+            graham = None
+            if eps and bvps and eps > 0 and bvps > 0:
+                try:
+                    graham = round((22.5 * eps * bvps) ** 0.5, 2)
+                except:
+                    pass
+
             data = {
-                'price': price, 'pe': info.get('trailingPE'), 'pb': info.get('priceToBook'),
-                'eps': eps, 'bvps': bvps,
-                'divYield': round((info.get('dividendYield') or 0)*100, 2),
-                'roe': round((info.get('returnOnEquity') or 0)*100, 2),
-                'roa': round((info.get('returnOnAssets') or 0)*100, 2),
-                'revenue': info.get('totalRevenue'), 'netIncome': info.get('netIncomeToCommon'),
-                'debtEq': round((info.get('debtToEquity') or 0)/100, 2),
-                'currentRatio': info.get('currentRatio'), 'marketCap': info.get('marketCap'),
-                'graham': graham,
-                'priceToGraham': round(price/graham, 2) if graham and price else None,
-                'ts': datetime.now().strftime('%H:%M:%S')
+                'price':        price,
+                'pe':           info.get('trailingPE'),
+                'pb':           info.get('priceToBook'),
+                'eps':          eps,
+                'bvps':         bvps,
+                'divYield':     round((info.get('dividendYield') or 0) * 100, 2),
+                'roe':          round((info.get('returnOnEquity') or 0) * 100, 2),
+                'roa':          round((info.get('returnOnAssets') or 0) * 100, 2),
+                'revenue':      info.get('totalRevenue'),
+                'netIncome':    info.get('netIncomeToCommon'),
+                'debtEq':       round((info.get('debtToEquity') or 0) / 100, 2),
+                'currentRatio': info.get('currentRatio'),
+                'marketCap':    mktcap or info.get('marketCap'),
+                'graham':       graham,
+                'priceToGraham': round(price / graham, 2) if graham and price else None,
+                'ts':           datetime.now().strftime('%H:%M:%S'),
             }
+
             fin_cache[sym] = {**data, '_ts': time.time()}
             return jsonify({'data': data, 'cached': False})
+
         except Exception as e:
             last_err = str(e)
-            if 'Rate' in str(e) or '429' in str(e):
-                time.sleep(3)
+            if '429' in str(e) or 'rate' in str(e).lower() or 'Rate' in str(e):
+                time.sleep(5)
                 continue
             break
-    
+
     return jsonify({'error': last_err or 'Veri alınamadı'}), 500
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=False)
