@@ -135,12 +135,26 @@ def compare(sym):
         def extract_closes(data, ticker):
             try:
                 if isinstance(data.columns, pd.MultiIndex):
-                    col = ('Close', ticker)
-                    if col in data.columns:
-                        return data[col].dropna().tolist()
+                    # ExcelJS MultiIndex: ('Close', 'TICKER.IS')
+                    for key in [('Close', ticker), ('Close', ticker.upper())]:
+                        if key in data.columns:
+                            vals = data[key].dropna()
+                            if len(vals) > 1:
+                                return vals.tolist()
+                    # Alternatif: xs ile
+                    try:
+                        vals = data.xs(ticker, axis=1, level=1)['Close'].dropna()
+                        if len(vals) > 1:
+                            return vals.tolist()
+                    except: pass
+                    return []
                 else:
-                    return data['Close'].dropna().tolist()
-            except:
+                    # Tek ticker
+                    if 'Close' in data.columns:
+                        return data['Close'].dropna().tolist()
+                    return []
+            except Exception as ex:
+                print(f"extract_closes error {ticker}: {ex}")
                 return []
         
         hisse_closes  = extract_closes(raw, sym+'.IS')

@@ -1151,149 +1151,184 @@ async function drawCompChart(sym, period){
   const sector = d?.sector||'';
   const cacheKey = sym+'_'+period;
 
-  // Loading göster
-  if(legendEl) legendEl.innerHTML='<span style="color:#555;font-size:10px">⟳ Yükleniyor...</span>';
+  if(legendEl) legendEl.innerHTML='<span style="color:#555;font-size:10px">⟳ yükleniyor...</span>';
 
-  let compData = compCache[cacheKey];
-
-  if(!compData){
+  // API'den veri çek
+  let apiData = compCache[cacheKey];
+  if(!apiData){
     try{
-      const res = await fetch(API_URL+'/api/compare/'+sym+'?period='+period+'&sector='+encodeURIComponent(sector), {signal:AbortSignal.timeout(12000)});
-      compData = await res.json();
-      if(compData.sym && compData.sym.length>0) compCache[cacheKey] = compData;
-    } catch(e){
-      // Fallback: simüle
-      compData = null;
-    }
+      const res = await fetch(API_URL+'/api/compare/'+sym+'?period='+period+'&sector='+encodeURIComponent(sector),
+        {signal:AbortSignal.timeout(12000)});
+      const json = await res.json();
+      if(!json.error && json.sym && json.sym.length>1){
+        apiData = json;
+        compCache[cacheKey] = json;
+      }
+    } catch(e){ console.warn('Compare API hatası:', e.message); }
   }
 
-  // Canvas ayarla
-  const cssW = canvas.offsetWidth || 320;
-  const cssH = 150;
+  // Canvas hazırla
+  const cssW = canvas.offsetWidth||320, cssH = 160;
   const dpr = window.devicePixelRatio||2;
-  canvas.width = cssW*dpr; canvas.height = cssH*dpr;
-  canvas.style.width = cssW+'px'; canvas.style.height = cssH+'px';
+  canvas.width=cssW*dpr; canvas.height=cssH*dpr;
+  canvas.style.width=cssW+'px'; canvas.style.height=cssH+'px';
   const ctx = canvas.getContext('2d');
   ctx.scale(dpr,dpr);
   const W=cssW, H=cssH;
   ctx.clearRect(0,0,W,H);
 
-  // Veri hazırla
-  let hNorm=[], bNorm=[], sNorm=[], dates=[], secAvail=false, secName='';
+  // Veri: API önce, simüle fallback
+  let hData=[], bData=[], sData=[], dates=[], secAvail=false, secName='';
 
-  if(compData && compData.sym && compData.sym.length>1){
-    hNorm = compData.sym;
-    bNorm = compData.bist||[];
-    sNorm = compData.sector||[];
-    dates = compData.dates||[];
-    secAvail = compData.sector_available&&sNorm.length>0;
-    secName = compData.sector_name||sector;
-  } else {
-    // Simüle fallback - OHLC'den normalize et
-    const ohlc = d?.ohlc||[];
+  if(apiData && apiData.sym && apiData.sym.length>1){
+    hData = apiData.sym;
+    bData = apiData.bist||[];
+    sData = (apiData.sector_available && apiData.sector?.length>1) ? apiData.sector : [];
+    dates = apiData.dates||[];
+    secAvail = sData.length>1;
+    secName = apiData.sector_name||sector;
+  }
+
+  // Simüle fallback (API gelmezse)
+  if(!hData.length){
     const days = period==='1H'?5:period==='1A'?21:period==='3A'?63:252;
-    const slice = ohlc.slice(-Math.min(days,ohlc.length));
-    if(slice.length<2){
-      if(legendEl) legendEl.innerHTML='<span style="color:#666;font-size:10px">Veri yok</span>';
-      return;
-    }
-    const base=slice[0].c;
-    hNorm = slice.map(c=>parseFloat(((c.c/base-1)*100).toFixed(2)));
+    const ohlc = (d?.ohlc||[]).slice(-Math.min(days,d?.ohlc?.length||21));
+    if(ohlc.length<2){ if(legendEl) legendEl.innerHTML='<span style="color:#555;font-size:10px">Veri yok</span>'; return; }
+    const base=ohlc[0].c||1;
+    hData = ohlc.map(c=>+((c.c/base-1)*100).toFixed(2));
+
     // BIST simüle - tüm hisselerin ortalaması
-    const allStocks=Object.values(DB).slice(0,50);
-    bNorm = slice.map((_,i)=>{
-      const avg=allStocks.reduce((s,st)=>{
-        const sl=st.ohlc.slice(-Math.min(days,st.ohlc.length));
-        return s+(sl[i]?.c||sl[0]?.c||0);
-      },0)/allStocks.length;
-      const avgBase=allStocks.reduce((s,st)=>{const sl=st.ohlc.slice(-Math.min(days,st.ohlc.length));return s+(sl[0]?.c||0);},0)/allStocks.length;
-      return parseFloat(((avg/avgBase-1)*100).toFixed(2));
-    });
+    const allSt=Object.values(DB).filter(s=>s.ohlc?.length>=2).slice(0,60);
+    if(allSt.length){
+      const bBases=allSt.map(s=>s.ohlc.slice(-Math.min(days,s.ohlc.length))[0]?.c||1);
+      bData = ohlc.map((_,i)=>{
+        const sum=allSt.reduce((acc,s,si)=>{
+          const sl=s.ohlc.slice(-Math.min(days,s.ohlc.length));
+          return acc+(sl[i]?.c||sl[sl.length-1]?.c||bBases[si]);
+        },0);
+        const baseSum=bBases.reduce((a,b)=>a+b,0);
+        return +((sum/allSt.length/(baseSum/allSt.length)-1)*100).toFixed(2);
+      });
+    }
+
     // Sektör simüle
-    const secStocks=Object.entries(DB).filter(([k,v])=>v.sector===sector&&k!==sym).slice(0,10);
-    if(secStocks.length){
-      sNorm = slice.map((_,i)=>{
-        const avg=secStocks.reduce((s,[k,v])=>{const sl=v.ohlc.slice(-Math.min(days,v.ohlc.length));return s+(sl[i]?.c||sl[0]?.c||0);},0)/secStocks.length;
-        const avgBase=secStocks.reduce((s,[k,v])=>{const sl=v.ohlc.slice(-Math.min(days,v.ohlc.length));return s+(sl[0]?.c||0);},0)/secStocks.length;
-        return parseFloat(((avg/avgBase-1)*100).toFixed(2));
+    const secSt=Object.entries(DB).filter(([k,v])=>v.sector===sector&&k!==sym&&v.ohlc?.length>=2).slice(0,10);
+    if(secSt.length){
+      const sBases=secSt.map(([,v])=>v.ohlc.slice(-Math.min(days,v.ohlc.length))[0]?.c||1);
+      sData = ohlc.map((_,i)=>{
+        const sum=secSt.reduce((acc,[,v],si)=>{
+          const sl=v.ohlc.slice(-Math.min(days,v.ohlc.length));
+          return acc+(sl[i]?.c||sl[sl.length-1]?.c||sBases[si]);
+        },0);
+        const bSum=sBases.reduce((a,b)=>a+b,0);
+        return +((sum/secSt.length/(bSum/secSt.length)-1)*100).toFixed(2);
       });
       secAvail=true; secName=sector;
     }
-    if(compData?.error) console.warn('Compare API:', compData.error);
   }
 
-  if(!hNorm.length){
-    if(legendEl) legendEl.innerHTML='<span style="color:#666;font-size:10px">Veri alınamadı</span>';
-    return;
-  }
+  if(!hData.length){ if(legendEl) legendEl.innerHTML=''; return; }
 
-  // Çizim
-  const pad={l:12,r:48,t:14,b:28};
+  // Renk sabitleri — temadan bağımsız
+  const COL_HISSE = '#00e676';  // her zaman yeşil
+  const COL_BIST  = '#2979ff';  // her zaman mavi
+  const COL_SEKTOR= '#ffd600';  // her zaman sarı
+
+  // Min/Max hesapla
+  const allVals=[...hData,...bData,...(secAvail?sData:[])].filter(v=>isFinite(v)&&v!==null);
+  if(!allVals.length){ if(legendEl) legendEl.innerHTML=''; return; }
+  const rawMin=Math.min(...allVals), rawMax=Math.max(...allVals);
+  const padding=(rawMax-rawMin)*0.12||0.5;
+  const minV=rawMin-padding, maxV=rawMax+padding;
+  const range=maxV-minV;
+
+  const pad={l:38,r:52,t:12,b:22};
   const cw=W-pad.l-pad.r, ch=H-pad.t-pad.b;
-  const allVals=[...hNorm,...bNorm,...(secAvail?sNorm:[])];
-  const minV=Math.min(...allVals)-0.5, maxV=Math.max(...allVals)+0.5;
-  const range=maxV-minV||1;
   const toY=v=>pad.t+ch-((v-minV)/range)*ch;
   const toX=(i,n)=>pad.l+(i/Math.max(n-1,1))*cw;
 
-  // Grid
-  ctx.strokeStyle='rgba(255,255,255,0.05)'; ctx.lineWidth=1;
-  [0,0.25,0.5,0.75,1].forEach(f=>{
-    const y=pad.t+ch*f;
-    ctx.beginPath(); ctx.moveTo(pad.l,y); ctx.lineTo(W-pad.r,y); ctx.stroke();
-    // Y ekseni değeri
-    const val=maxV-(f*range);
-    ctx.fillStyle='#333355'; ctx.font='8px monospace'; ctx.textAlign='right';
-    ctx.fillText((val>=0?'+':'')+val.toFixed(1)+'%', pad.l-2, y+3);
-  });
+  // Arka plan
+  ctx.fillStyle='rgba(0,0,0,0.15)';
+  ctx.roundRect?ctx.roundRect(pad.l,pad.t,cw,ch,4):ctx.fillRect(pad.l,pad.t,cw,ch);
+  ctx.fill();
 
-  // Zero line
-  const z0=toY(0);
-  if(z0>=pad.t && z0<=pad.t+ch){
-    ctx.strokeStyle='rgba(255,255,255,0.2)'; ctx.lineWidth=1.5;
-    ctx.beginPath(); ctx.moveTo(pad.l,z0); ctx.lineTo(W-pad.r,z0); ctx.stroke();
+  // Grid + Y ekseni etiketleri — 5 yatay çizgi
+  const GRID_N = 4;
+  for(let i=0;i<=GRID_N;i++){
+    const f = i/GRID_N;
+    const y = pad.t + ch*f;
+    const val = maxV - f*range; // i=0 → maxV, i=GRID_N → minV
+
+    ctx.strokeStyle='rgba(255,255,255,0.06)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(pad.l,y); ctx.lineTo(pad.l+cw,y); ctx.stroke();
+
+    ctx.fillStyle='#3a3a5a';
+    ctx.font='8px JetBrains Mono, monospace';
+    ctx.textAlign='right';
+    // Her i için farklı val — bu doğru olmalı
+    const label = (val>0?'+':'') + val.toFixed(1) + '%';
+    ctx.fillText(label, pad.l-4, y+3);
   }
 
+  // Sıfır çizgisi
+  if(minV<0 && maxV>0){
+    const z=toY(0);
+    ctx.strokeStyle='rgba(255,255,255,0.2)'; ctx.lineWidth=1;
+    ctx.setLineDash([4,2]);
+    ctx.beginPath(); ctx.moveTo(pad.l,z); ctx.lineTo(pad.l+cw,z); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // Çizgi çiz
   const drawLine=(data,color,dash=[],lw=2)=>{
     if(!data||data.length<2) return;
+    ctx.save();
     ctx.beginPath(); ctx.strokeStyle=color; ctx.lineWidth=lw;
-    ctx.setLineDash(dash); ctx.shadowColor=color+'55'; ctx.shadowBlur=5;
-    data.forEach((v,i)=>i===0?ctx.moveTo(toX(i,data.length),toY(v)):ctx.lineTo(toX(i,data.length),toY(v)));
-    ctx.stroke(); ctx.setLineDash([]); ctx.shadowBlur=0;
-    // Son değer etiketi
+    ctx.setLineDash(dash); ctx.shadowColor=color+'44'; ctx.shadowBlur=5;
+    let moved=false;
+    data.forEach((v,i)=>{
+      if(!isFinite(v)||v===null) return;
+      const x=toX(i,data.length), y=toY(v);
+      if(!moved){ ctx.moveTo(x,y); moved=true; }
+      else ctx.lineTo(x,y);
+    });
+    ctx.stroke();
+    ctx.restore();
+
+    // Son değer etiketi sağda
     const last=data[data.length-1];
-    const lastX=toX(data.length-1,data.length);
-    const lastY=toY(last);
-    ctx.fillStyle=color; ctx.font='bold 9px monospace'; ctx.textAlign='left';
-    ctx.fillText((last>=0?'+':'')+last.toFixed(1)+'%', lastX+4, lastY+3);
+    if(!isFinite(last)) return;
+    ctx.fillStyle=color;
+    ctx.font='bold 9px JetBrains Mono, monospace';
+    ctx.textAlign='left';
+    ctx.fillText((last>=0?'+':'')+last.toFixed(1)+'%',
+      toX(data.length-1,data.length)+4, toY(last)+3);
   };
 
-  // Sektör (kesik sarı)
-  if(secAvail) drawLine(sNorm,'#ffd600',[4,3],1.5);
-  // BIST100 (noktalı mavi)
-  drawLine(bNorm,'#2979ff',[2,2],1.5);
-  // Hisse (düz kalın yeşil/kırmızı)
-  const hColor = COLORS[0]||'#00e676';
-  drawLine(hNorm, hColor, [], 2.5);
+  // Çizim sırası: altta önce
+  if(secAvail && sData.length>1) drawLine(sData, COL_SEKTOR, [5,3], 1.5);
+  drawLine(bData, COL_BIST, [2,2], 1.5);
+  drawLine(hData, COL_HISSE, [], 2.5);
 
   // X ekseni tarih etiketleri
   if(dates.length>1){
     ctx.fillStyle='#333355'; ctx.font='8px monospace'; ctx.textAlign='center';
-    const step=Math.max(1,Math.floor(dates.length/5));
+    const step=Math.max(1,Math.floor(dates.length/6));
     for(let i=0;i<dates.length;i+=step){
-      ctx.fillText(dates[i], toX(i,dates.length), H-10);
+      ctx.fillText(dates[i], toX(i,dates.length), H-6);
     }
   }
 
   // Legend
   if(legendEl){
-    const lastH=hNorm[hNorm.length-1];
-    const lastB=bNorm.length?bNorm[bNorm.length-1]:null;
-    const lastS=secAvail&&sNorm.length?sNorm[sNorm.length-1]:null;
-    const items=[[hColor,sym,lastH],['#2979ff','BİST100',lastB]];
-    if(lastS!==null) items.push(['#ffd600',secName.substring(0,12),lastS]);
-    legendEl.innerHTML=items.filter(([,, v])=>v!==null).map(([c,l,v])=>`
-      <div style="display:flex;align-items:center;gap:5px;font-size:10px">
+    const lastH=hData[hData.length-1];
+    const lastB=bData.length?bData[bData.length-1]:null;
+    const lastS=secAvail&&sData.length?sData[sData.length-1]:null;
+    const items=[[COL_HISSE,sym,lastH],[COL_BIST,'BİST100',lastB]];
+    if(lastS!==null) items.push([COL_SEKTOR,secName.substring(0,12),lastS]);
+    legendEl.innerHTML=items
+      .filter(([,,v])=>v!==null&&isFinite(v))
+      .map(([c,l,v])=>`<div style="display:flex;align-items:center;gap:5px;font-size:10px">
         <div style="width:18px;height:2px;background:${c};border-radius:1px"></div>
         <span style="color:#888899">${l}</span>
         <span style="color:${v>=0?'var(--green)':'var(--red)'};font-weight:700">${v>=0?'+':''}${v.toFixed(2)}%</span>
