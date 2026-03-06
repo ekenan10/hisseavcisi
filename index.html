@@ -254,7 +254,10 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--m
     <div class="card cp" style="grid-column:1/3">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
         <div class="ct" style="margin:0">POZİSYONLAR</div>
-        <button class="btn btn-green btn-sm" onclick="openPortModal()">+ Ekle</button>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-ghost btn-sm" onclick="exportPortXLSX()" title="Excel'e aktar">📥 Excel</button>
+          <button class="btn btn-green btn-sm" onclick="openPortModal()">+ Ekle</button>
+        </div>
       </div>
       <div style="overflow-x:auto"><table class="tbl">
         <thead><tr><th>HİSSE</th><th class="r">LOT</th><th class="r">MALİYET</th><th class="r">ANL.FİYAT</th><th class="r">DEĞER</th><th class="r">K/Z%</th><th>SİNYAL</th><th></th></tr></thead>
@@ -609,9 +612,7 @@ const STOCKS = [
 // ═══════════════════════════════════════════════════════
 // Render/Railway'e deploy ettikten sonra aşağıdaki URL'yi güncelleyin:
 // const API_URL = 'https://hisse-avcisi-api.onrender.com';
-const API_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-  ? 'http://localhost:5000'
-  : 'https://hisseavcisi.onrender.com';
+const API_URL = 'https://hisseavcisi.onrender.com';
 
 // Backend varsa gerçek veri, yoksa simüle
 async function apiFetch(path, timeout=8000){
@@ -676,10 +677,13 @@ function spark(data, color, w=80, h=28){
 function rndPrice(base){
   let p=base;
   const arr=[];
+  // Daha gerçekçi fiyat hareketi — son fiyat base'e yakın olsun
   for(let i=90;i>=0;i--){
-    const c=p*(1+(Math.random()-0.48)*0.025);
-    arr.push({o:p,h:Math.max(p,c)*1.005,l:Math.min(p,c)*0.995,c,v:Math.floor(rnd(1e5,5e6))});
-    p=c;
+    // Son 5 günde base'e yakınsasın
+    const drift = i<5 ? (base-p)*0.3 : 0;
+    const c=p*(1+(Math.random()-0.48)*0.022)+drift;
+    arr.push({o:p,h:Math.max(p,c)*1.003,l:Math.min(p,c)*0.997,c:Math.max(0.01,c),v:Math.floor(rnd(1e5,5e6))});
+    p=Math.max(0.01,c);
   }
   return arr;
 }
@@ -1245,46 +1249,41 @@ async function loadFin(sym){
   if(finEl) finEl.innerHTML='<div style="text-align:center;padding:20px;color:var(--muted);font-size:11px">⟳ Yükleniyor...</div>';
   if(finCache[sym]){ DB[sym].fin=finCache[sym]; if(selectedSym===sym) renderDetail(sym); return; }
   try{
-    const json = await apiFetch('/api/fundamentals/'+sym, 15000);
+    const res = await fetch(API_URL+'/api/fundamentals/'+sym, {signal:AbortSignal.timeout(20000)});
+    const json = await res.json();
     if(json.error) throw new Error(json.error);
     const d = json.data;
+    if(!d) throw new Error('Veri yok');
     const fin = {
-      pe: d.pe, pb: d.pb, eps: d.eps, bvps: d.bvps,
-      div: d.divYield, roe: d.roe, roa: d.roa,
-      revenue: d.revenue, netIncome: d.netIncome,
-      equity: d.equity, debtEq: d.debtEq, currentRatio: d.currentRatio,
-      graham: d.graham, priceToGraham: d.priceToGraham, price: d.price,
-      _real:true, _ts: d.ts
+      pe:d.pe, pb:d.pb, eps:d.eps, bvps:d.bvps,
+      div:d.divYield, roe:d.roe, roa:d.roa,
+      revenue:d.revenue, netIncome:d.netIncome,
+      equity:d.equity, debtEq:d.debtEq, currentRatio:d.currentRatio,
+      graham:d.graham, priceToGraham:d.priceToGraham, price:d.price,
+      _real:true, _ts:d.ts
     };
-    finCache[sym] = fin;
-    DB[sym].fin = fin;
-    if(d.price && DB[sym]){
-      const last = DB[sym].ohlc[DB[sym].ohlc.length-1];
+    finCache[sym]=fin;
+    DB[sym].fin=fin;
+    if(d.price&&DB[sym]){
+      const last=DB[sym].ohlc[DB[sym].ohlc.length-1];
       last.c=d.price; last.h=Math.max(last.h,d.price); last.l=Math.min(last.l,d.price);
     }
     if(selectedSym===sym) renderDetail(sym);
     notify(sym+' verileri yüklendi ✓');
   } catch(e){
-    if(finEl) finEl.innerHTML=`
-      <div style="text-align:center;padding:20px">
-        <div style="font-size:24px;margin-bottom:10px">🔌</div>
-        <div style="color:var(--red);font-size:12px;margin-bottom:8px">Backend bağlantısı yok</div>
-        <div style="color:var(--muted);font-size:10px;margin-bottom:16px;line-height:1.6">
-          Gerçek veri için Python backend çalışıyor olmalı.<br>
-          Kurulum için README'ye bakın.
-        </div>
-        <div style="display:flex;flex-direction:column;gap:8px">
-          <a href="https://finance.yahoo.com/quote/${sym}.IS/key-statistics" target="_blank"
-            style="color:var(--blue);font-size:11px;text-align:center;border:1px solid rgba(41,121,255,0.3);border-radius:8px;padding:8px">
-            Yahoo Finance'de Gör ↗
-          </a>
-          <a href="https://www.isyatirim.com.tr/analiz-ve-raporlar/hisse?action=getCompanyDetails&companyCode=${sym}" target="_blank"
-            style="color:var(--muted);font-size:11px;text-align:center;border:1px solid var(--border);border-radius:8px;padding:8px">
-            İş Yatırım'da Gör ↗
-          </a>
-        </div>
-      </div>`;
-    notify(sym+' verisi alınamadı — backend gerekli', true);
+    const errHtml=`<div style="text-align:center;padding:20px">
+      <div style="font-size:24px;margin-bottom:10px">⚠️</div>
+      <div style="color:var(--red);font-size:12px;margin-bottom:12px">${e.message||'Veri alınamadı'}</div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <button onclick="loadFin('${sym}')" style="background:rgba(0,230,118,0.1);border:1px solid rgba(0,230,118,0.3);border-radius:8px;padding:8px;color:var(--green);cursor:pointer;font-family:var(--mono);font-size:11px">↺ Tekrar Dene</button>
+        <a href="https://finance.yahoo.com/quote/${sym}.IS/key-statistics" target="_blank"
+          style="color:var(--blue);font-size:11px;text-align:center;border:1px solid rgba(41,121,255,0.3);border-radius:8px;padding:8px;text-decoration:none">
+          Yahoo Finance'de Gör ↗
+        </a>
+      </div>
+    </div>`;
+    if(finEl) finEl.innerHTML=errHtml;
+    notify(sym+' verisi alınamadı', true);
   }
 }
 
@@ -1428,6 +1427,38 @@ function confirmPort(){
   if(currentPage==='portfolio') renderPortfolio();
   if(selectedSym) renderDetail(selectedSym);
 }
+function exportPortXLSX(){
+  if(!portfolio.length){ notify('Portföy boş', true); return; }
+  const portVal=portfolio.reduce((s,p)=>{const c=DB[p.symbol]?.price||p.cost;return s+c*p.qty;},0);
+  const rows=[['Hisse','Şirket','Sektör','Lot','Maliyet (₺)','Anlık Fiyat (₺)','Değer (₺)','K/Z (₺)','K/Z (%)','Sinyal','Eklenme']];
+  portfolio.forEach(p=>{
+    const d=DB[p.symbol];
+    const cp=d?.price||p.cost;
+    const val=cp*p.qty, pn=val-p.cost*p.qty, pp=pn/(p.cost*p.qty)*100;
+    const sig=d?.signals[selectedTF]?.sig||'';
+    rows.push([p.symbol,d?.name||'',d?.sector||'',p.qty,p.cost,cp,val.toFixed(2),pn.toFixed(2),pp.toFixed(2)+'%',sig,p.added||'']);
+  });
+  // Özet satır
+  const totalCost=portfolio.reduce((s,p)=>s+p.cost*p.qty,0);
+  const totalPnl=portVal-totalCost;
+  rows.push([]);
+  rows.push(['TOPLAM','','','',totalCost.toFixed(2),'',portVal.toFixed(2),totalPnl.toFixed(2),(totalPnl/totalCost*100).toFixed(2)+'%','','']);
+
+  // CSV olarak indir (Excel açar)
+  const csv=rows.map(r=>r.map(v=>{
+    const s=String(v??'').replace(/"/g,'""');
+    return s.includes(',')||s.includes('"')||s.includes('\n')?`"${s}"`:s;
+  }).join(',')).join('\n');
+
+  const bom='\uFEFF'; // Türkçe karakter desteği için BOM
+  const blob=new Blob([bom+csv],{type:'text/csv;charset=utf-8'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url; a.download='portfoy_'+new Date().toLocaleDateString('tr-TR').replace(/\./g,'-')+'.csv';
+  a.click(); URL.revokeObjectURL(url);
+  notify('Portföy CSV olarak indirildi ✅');
+}
+
 function removePort(i){const sym=portfolio[i].symbol;portfolio.splice(i,1);renderPortfolio();notify(`${sym} portföyden çıkarıldı`,true);}
 
 // ═══════════════════════════════════════════════════════
