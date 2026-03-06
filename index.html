@@ -311,7 +311,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--m
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
         <div class="ct" style="margin:0">K/Z PERFORMANS</div>
       </div>
-      <canvas id="bar-pnl" width="600" height="360" style="width:100%;height:180px"></canvas>
+      <canvas id="bar-pnl" style="width:100%;height:180px;display:block"></canvas>
     </div>
   </div>
 
@@ -1517,77 +1517,78 @@ function drawBarPnl(canvasId, data){
   const canvas = document.getElementById(canvasId);
   if(!canvas||!data||!data.length) return;
 
-  // Sabit yüksek çözünürlük
-  const W = 600, H = 360;
-  canvas.width = W; canvas.height = H;
+  const cssW = canvas.offsetWidth || canvas.parentElement?.offsetWidth || 400;
+  const cssH = parseInt(canvas.style.height) || 180;
+  const dpr = window.devicePixelRatio || 2;
+  canvas.width  = cssW * dpr;
+  canvas.height = cssH * dpr;
+  canvas.style.width  = cssW + 'px';
+  canvas.style.height = cssH + 'px';
+
   const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  const W = cssW, H = cssH;
   ctx.clearRect(0,0,W,H);
 
   const n = data.length;
-  const pad = {l:16,r:16,t:30,b:38};
+  if(!n) return;
+  const pad = {l:16,r:16,t:28,b:36};
   const cw = W-pad.l-pad.r, ch = H-pad.t-pad.b;
-  const bw = Math.max(12, Math.floor(cw/n) - 6);
+  const bw = Math.max(10, Math.floor(cw/n) - 5);
   const maxAbs = Math.max(...data.map(d=>Math.abs(d.value)), 0.01);
   const zero = pad.t + ch/2;
 
-  // Grid çizgileri
-  ctx.strokeStyle = 'rgba(255,255,255,0.05)';
-  ctx.lineWidth = 1;
-  [0.25,0.5,0.75,1].forEach(f=>{
-    const y1 = pad.t + (ch/2)*f;
-    const y2 = pad.t + ch/2 + (ch/2)*f;
+  // Grid
+  ctx.strokeStyle='rgba(255,255,255,0.05)'; ctx.lineWidth=1;
+  [0.25,0.75].forEach(f=>{
+    const y1=pad.t+(ch/2)*f, y2=pad.t+ch/2+(ch/2)*f;
     ctx.beginPath(); ctx.moveTo(pad.l,y1); ctx.lineTo(W-pad.r,y1); ctx.stroke();
-    if(f>0){ctx.beginPath(); ctx.moveTo(pad.l,y2); ctx.lineTo(W-pad.r,y2); ctx.stroke();}
+    ctx.beginPath(); ctx.moveTo(pad.l,y2); ctx.lineTo(W-pad.r,y2); ctx.stroke();
   });
 
   // Zero line
-  ctx.strokeStyle = 'rgba(255,255,255,0.2)';
-  ctx.lineWidth = 2;
+  ctx.strokeStyle='rgba(255,255,255,0.18)'; ctx.lineWidth=1.5;
   ctx.beginPath(); ctx.moveTo(pad.l,zero); ctx.lineTo(W-pad.r,zero); ctx.stroke();
 
   data.forEach((d,i)=>{
     const slotW = cw/n;
     const x = pad.l + i*slotW + (slotW-bw)/2;
-    const barH = Math.max(3, (Math.abs(d.value)/maxAbs)*(ch/2)*0.88);
+    const barH = Math.max(2, (Math.abs(d.value)/maxAbs)*(ch/2)*0.88);
     const y = d.value>=0 ? zero-barH : zero;
     const color = d.value>=0 ? (COLORS[0]||'#00e676') : '#ff1744';
 
-    // Gradient fill
-    const grad = ctx.createLinearGradient(x, y, x, y+barH);
+    // Gradient
+    const grad = ctx.createLinearGradient(x,y,x,y+barH);
     grad.addColorStop(0, color);
-    grad.addColorStop(1, color+'44');
-    
-    ctx.shadowColor = color+'66'; ctx.shadowBlur = 10;
-    
-    // Rounded bar
-    const rad = Math.min(5, bw/3);
-    ctx.beginPath();
-    ctx.moveTo(x+rad, y);
-    ctx.lineTo(x+bw-rad, y);
-    ctx.arcTo(x+bw, y, x+bw, y+rad, rad);
-    ctx.lineTo(x+bw, y+barH-rad);
-    ctx.arcTo(x+bw, y+barH, x+bw-rad, y+barH, rad);
-    ctx.lineTo(x+rad, y+barH);
-    ctx.arcTo(x, y+barH, x, y+barH-rad, rad);
-    ctx.lineTo(x, y+rad);
-    ctx.arcTo(x, y, x+rad, y, rad);
-    ctx.closePath();
-    ctx.fillStyle = grad;
-    ctx.fill();
-    ctx.shadowBlur = 0;
+    grad.addColorStop(1, color+'33');
+    ctx.shadowColor=color+'55'; ctx.shadowBlur=8;
 
-    // Değer etiketi
-    ctx.fillStyle = color;
-    ctx.font = `bold ${Math.max(10,Math.min(13,bw*0.45))}px monospace`;
-    ctx.textAlign = 'center';
-    const valStr = (d.value>=0?'+':'')+d.value.toFixed(1)+'%';
-    ctx.fillText(valStr, x+bw/2, d.value>=0 ? y-8 : y+barH+16);
+    // Rounded rect
+    const rad = Math.min(4,bw/4);
+    ctx.beginPath();
+    ctx.moveTo(x+rad,y); ctx.lineTo(x+bw-rad,y);
+    ctx.arcTo(x+bw,y,x+bw,y+rad,rad);
+    ctx.lineTo(x+bw,y+barH-rad);
+    ctx.arcTo(x+bw,y+barH,x+bw-rad,y+barH,rad);
+    ctx.lineTo(x+rad,y+barH);
+    ctx.arcTo(x,y+barH,x,y+barH-rad,rad);
+    ctx.lineTo(x,y+rad);
+    ctx.arcTo(x,y,x+rad,y,rad);
+    ctx.closePath();
+    ctx.fillStyle=grad; ctx.fill();
+    ctx.shadowBlur=0;
+
+    // Değer
+    ctx.fillStyle=color;
+    ctx.font=`bold ${Math.max(9,Math.min(11,bw*0.5))}px monospace`;
+    ctx.textAlign='center';
+    const vs=(d.value>=0?'+':'')+d.value.toFixed(1)+'%';
+    ctx.fillText(vs, x+bw/2, d.value>=0?y-6:y+barH+14);
 
     // Sembol
-    ctx.fillStyle = '#888899';
-    ctx.font = `${Math.max(9,Math.min(11,bw*0.4))}px monospace`;
-    const lbl = d.label.length>5 ? d.label.substring(0,5) : d.label;
-    ctx.fillText(lbl, x+bw/2, H-12);
+    ctx.fillStyle='#888899';
+    ctx.font=`${Math.max(8,Math.min(10,bw*0.45))}px monospace`;
+    ctx.fillText(d.label.substring(0,5), x+bw/2, H-10);
   });
 }
 
@@ -1628,19 +1629,19 @@ function renderPortfolio(){
   portfolio.forEach((p,i)=>{
     const sec=DB[p.symbol]?.sector||'Diğer';
     const val=(DB[p.symbol]?.price||p.cost)*p.qty;
-    if(!secMap[sec]) secMap[sec]={value:0,color:''};
+    if(!secMap[sec]) secMap[sec]={value:0};
     secMap[sec].value+=val;
   });
   const secColors=['#2979ff','#00e676','#ffd600','#ff6d00','#e040fb','#00bcd4','#ff1744','#76ff03','#ff80ab','#64ffda'];
   const secData=Object.entries(secMap).map(([k,v],i)=>({label:k,value:v.value,color:secColors[i%secColors.length]})).sort((a,b)=>b.value-a.value);
   drawDonut('pie-sectors','pie-sectors-center','pie-sectors-legend', secData, 'SEKTÖR');
 
-  // ── Bar: K/Z Performans ──
+  // ── Bar: K/Z Performans — kısa gecikme ile (DOM hazır olsun) ──
   const barData=portfolio.map(p=>{
     const cp=DB[p.symbol]?.price||p.cost;
     return{label:p.symbol, value:((cp-p.cost)/p.cost*100)};
   }).sort((a,b)=>b.value-a.value);
-  drawBarPnl('bar-pnl', barData);
+  setTimeout(()=>drawBarPnl('bar-pnl', barData), 50);
 
   // Pozisyon tablosu
   $('port-tbody').innerHTML=portfolio.map((p,i)=>{
@@ -1849,23 +1850,86 @@ function exportPortXLSX(){
       });
       for(let c=1;c<=12;c++){ if(!tr.getCell(c).fill?.fgColor) tr.getCell(c).fill=BG('1A1A2E'); }
 
-      // ═══ SHEET 2: SEKTÖR ANALİZİ ══════════════════════
-      const ws2 = wb.addWorksheet('Sektör',{views:[{showGridLines:false}]});
-      ws2.properties.tabColor={argb:'FF2979FF'};
-      ws2.columns=[{width:20},{width:10},{width:18},{width:12},{width:18},{width:14}];
+      // ═══ SHEET 2: VİZÜEL ANALİZ ══════════════════════════
+      const ws2 = wb.addWorksheet('Görsel Analiz',{views:[{showGridLines:false}]});
+      ws2.properties.tabColor={argb:'FF00E676'};
+      ws2.columns=[
+        {width:2},{width:18},{width:28},{width:10},{width:18},{width:14},{width:2},
+        {width:18},{width:28},{width:10},{width:18},{width:14},{width:2}
+      ];
 
-      ws2.mergeCells('A1:F1');
-      setCell(ws2,'A1','📊 SEKTÖR ANALİZİ','2979FF','0D0D1A',16,true,null,'left');
-      ws2.getRow(1).height=32;
+      // Tüm zemin
+      for(let r=1;r<=80;r++) for(let c=1;c<=13;c++) ws2.getRow(r).getCell(c).fill=BG('04040e');
 
-      ws2.getRow(2).height=22;
-      ['SEKTÖR','POZİSYON','DEĞER','AĞIRLIK','K/Z ₺','K/Z %'].forEach((h,i)=>{
-        const cell=ws2.getRow(2).getCell(i+1);
-        cell.value=h; cell.font=F('2979FF',8,true); cell.fill=BG('0A0A18');
-        cell.alignment={horizontal:'center',vertical:'middle'};
-        cell.border={bottom:{style:'medium',color:{argb:'FF2979FF'}}};
+      // Başlık
+      ws2.mergeCells('B1:L1'); ws2.getRow(1).height=40;
+      const t2=ws2.getCell('B1');
+      t2.value='📊  PORTFÖY GÖRSEL ANALİZ'; t2.font=F('00E676',18,true);
+      t2.fill=BG('04040e'); t2.alignment={horizontal:'left',vertical:'middle'};
+
+      ws2.mergeCells('B2:L2'); ws2.getRow(2).height=14;
+      const d2=ws2.getCell('B2');
+      d2.value='Rapor: '+now; d2.font=F('444466',9,false);
+      d2.fill=BG('04040e'); d2.alignment={horizontal:'left',vertical:'middle'};
+
+      ws2.getRow(3).height=12;
+
+      // ── Sol Panel: Hisse Dağılımı (Pasta Simüle) ──────────
+      ws2.mergeCells('B4:E4'); ws2.getRow(4).height=20;
+      const ph=ws2.getCell('B4');
+      ph.value='🥧  HİSSE DAĞILIMI'; ph.font=F('00E676',10,true);
+      ph.fill=BG('0A1A0A'); ph.alignment={horizontal:'left',vertical:'middle'};
+
+      // Her hisse için görsel renk bloğu + ağırlık bar
+      const pieColors=['00E676','2979FF','FFD600','FF6D00','E040FB','00BCD4','76FF03','FF80AB','64FFDA','82B1FF'];
+      const sortedHold=[...portfolio].map(p=>{
+        const cp=DB[p.symbol]?.price||p.cost;
+        return{sym:p.symbol,val:cp*p.qty,name:DB[p.symbol]?.name||''};
+      }).sort((a,b)=>b.val-a.val);
+
+      ws2.getRow(5).height=16;
+      ['HİSSE','ŞİRKET','AĞIRLIK %','DEĞER (₺)','GÖRSEL BAR'].forEach((h,i)=>{
+        const cell=ws2.getRow(5).getCell(i+2);
+        cell.value=h; cell.font=F('444466',8,true); cell.fill=BG('0A0A1A');
+        cell.alignment={horizontal:i===0||i===1?'left':'center',vertical:'middle'};
+        cell.border={bottom:{style:'thin',color:{argb:'FF1A1A3A'}}};
       });
 
+      sortedHold.forEach((p,i)=>{
+        if(i>=12) return;
+        const w=p.val/totalVal, pct=(w*100).toFixed(1);
+        const barLen=Math.max(1,Math.round(w*20));
+        const bar='█'.repeat(barLen)+'░'.repeat(20-barLen);
+        const rbg=i%2===0?'0D0D1A':'0A0A16';
+        const color=pieColors[i%pieColors.length];
+        const row=ws2.getRow(6+i); row.height=18;
+
+        const cells=[
+          [2,p.sym,color,'',true,'left'],
+          [3,p.name,'888899','',false,'left'],
+          [4,w,color,'0.0%',true,'center'],
+          [5,p.val,'AAAACC','#,##0 ₺',false,'center'],
+          [6,bar,color,'',false,'left'],
+        ];
+        cells.forEach(([col,val,clr,fmt,bold,align])=>{
+          const cell=row.getCell(col);
+          cell.value=val; cell.font=F(clr,10,bold); cell.fill=BG(rbg);
+          cell.alignment={horizontal:align,vertical:'middle'};
+          if(fmt) cell.numFmt=fmt;
+        });
+      });
+
+      const leftEnd = 6+Math.min(sortedHold.length,12);
+      ws2.getRow(leftEnd+1).height=16;
+
+      // ── Sağ Panel: Sektör Dağılımı ────────────────────────
+      ws2.getRow(4).getCell(8).value='🏭  SEKTÖR DAĞILIMI';
+      ws2.getRow(4).getCell(8).font=F('2979FF',10,true);
+      ws2.getRow(4).getCell(8).fill=BG('0A0A1A');
+      ws2.getRow(4).getCell(8).alignment={horizontal:'left',vertical:'middle'};
+      ws2.mergeCells(4,8,4,12);
+
+      const secColors2=['2979FF','00E676','FFD600','FF6D00','E040FB','00BCD4','FF1744','76FF03'];
       const secMap={};
       portfolio.forEach(p=>{
         const d=DB[p.symbol]; const cp=d?.price||p.cost;
@@ -1873,15 +1937,77 @@ function exportPortXLSX(){
         if(!secMap[sec]) secMap[sec]={val:0,cost:0,count:0};
         secMap[sec].val+=cp*p.qty; secMap[sec].cost+=p.cost*p.qty; secMap[sec].count++;
       });
-      Object.entries(secMap).sort((a,b)=>b[1].val-a[1].val).forEach(([sec,d],i)=>{
+      const sortedSec=Object.entries(secMap).sort((a,b)=>b[1].val-a[1].val);
+
+      ws2.getRow(5).getCell(8).value='SEKTÖR';
+      ws2.getRow(5).getCell(9).value='POZ.';
+      ws2.getRow(5).getCell(10).value='AĞIRLIK';
+      ws2.getRow(5).getCell(11).value='K/Z %';
+      ws2.getRow(5).getCell(12).value='GÖRSEL';
+      [8,9,10,11,12].forEach(c=>{
+        const cell=ws2.getRow(5).getCell(c);
+        cell.font=F('444466',8,true); cell.fill=BG('0A0A1A');
+        cell.alignment={horizontal:c===8?'left':'center',vertical:'middle'};
+        cell.border={bottom:{style:'thin',color:{argb:'FF1A1A3A'}}};
+      });
+
+      sortedSec.forEach(([sec,d],i)=>{
+        if(i>=12) return;
         const pnl=d.val-d.cost, pct=d.cost?pnl/d.cost:0, w=totalVal?d.val/totalVal:0;
-        const rbg=i%2===0?'141428':'0F0F20';
+        const barLen=Math.max(1,Math.round(w*20));
+        const bar='█'.repeat(barLen)+'░'.repeat(20-barLen);
+        const rbg=i%2===0?'0D0D1A':'0A0A16';
+        const color=secColors2[i%secColors2.length];
         const pc=pnl>=0?'00E676':'FF1744';
-        const row=ws2.getRow(3+i); row.height=20;
-        [[1,sec,'E8E8F0',''],[2,d.count,'888899',''],[3,d.val,'E8E8F0','#,##0.00 ₺'],[4,w,'AAAACC','0.0%'],[5,pnl,pc,'+#,##0.00 ₺;[Red]-#,##0.00 ₺'],[6,pct,pc,'+0.00%;[Red]-0.00%']].forEach(([col,val,color,fmt])=>{
+        const row=ws2.getRow(6+i); row.height=18;
+        [[8,sec,color,'',true,'left'],[9,d.count,'888899','',false,'center'],
+         [10,w,color,'0.0%',true,'center'],[11,pct,pc,'+0.00%;[Red]-0.00%',true,'center'],
+         [12,bar,color,'',false,'left']].forEach(([col,val,clr,fmt,bold,align])=>{
           const cell=row.getCell(col);
-          cell.value=val; cell.font=F(color,10,col>=5); cell.fill=BG(rbg);
-          cell.alignment={horizontal:col===1?'left':'center',vertical:'middle'};
+          cell.value=val; cell.font=F(clr,10,bold); cell.fill=BG(rbg);
+          cell.alignment={horizontal:align,vertical:'middle'};
+          if(fmt) cell.numFmt=fmt;
+        });
+      });
+
+      // ── Alt Panel: K/Z Performans Sıralaması ──────────────
+      const perfStart = Math.max(leftEnd+2, 6+Math.min(sortedSec.length,12)+2);
+      ws2.getRow(perfStart).height=20;
+      ws2.mergeCells(perfStart,2,perfStart,12);
+      const ph2=ws2.getRow(perfStart).getCell(2);
+      ph2.value='📈  K/Z PERFORMANS SIRALAMASI'; ph2.font=F('FFD600',10,true);
+      ph2.fill=BG('1A1A0A'); ph2.alignment={horizontal:'left',vertical:'middle'};
+
+      ws2.getRow(perfStart+1).height=16;
+      ['HİSSE','ŞİRKET','K/Z %','K/Z ₺','MALİYET','ANL.FİYAT','PERFORMANS ÇUBUĞU'].forEach((h,i)=>{
+        const cell=ws2.getRow(perfStart+1).getCell(i+2);
+        cell.value=h; cell.font=F('444466',8,true); cell.fill=BG('0A0A1A');
+        cell.alignment={horizontal:i===0||i===1?'left':'center',vertical:'middle'};
+        cell.border={bottom:{style:'thin',color:{argb:'FF1A1A3A'}}};
+      });
+
+      const ranked=[...portfolio].map(p=>{
+        const d=DB[p.symbol]; const cp=d?.price||p.cost;
+        const mc=p.cost*p.qty, val=cp*p.qty, pnl=val-mc, pct=mc?pnl/mc:0;
+        return{sym:p.symbol,name:d?.name||'',cp,cost:p.cost,pnl,pct};
+      }).sort((a,b)=>b.pct-a.pct);
+
+      ranked.forEach((p,i)=>{
+        const rbg=i%2===0?'0D0D1A':'0A0A16';
+        const pc=p.pct>=0?'00E676':'FF1744';
+        const absMax=Math.max(...ranked.map(r=>Math.abs(r.pct)),0.01);
+        const barLen=Math.round((Math.abs(p.pct)/absMax)*18);
+        const bar=(p.pct>=0?'▶ ':'◀ ')+(p.pct>=0?'█':'█').repeat(Math.max(1,barLen));
+        const row=ws2.getRow(perfStart+2+i); row.height=18;
+        [[2,p.sym,pc,'',true,'left'],[3,p.name,'888899','',false,'left'],
+         [4,p.pct,pc,'+0.00%;[Red]-0.00%',true,'center'],
+         [5,p.pnl,pc,'+#,##0 ₺;[Red]-#,##0 ₺',false,'center'],
+         [6,p.cost,'888899','#,##0.00 ₺',false,'center'],
+         [7,p.cp,'E8E8F0','#,##0.00 ₺',false,'center'],
+         [8,bar,pc,'',true,'left']].forEach(([col,val,clr,fmt,bold,align])=>{
+          const cell=row.getCell(col);
+          cell.value=val; cell.font=F(clr,10,bold); cell.fill=BG(rbg);
+          cell.alignment={horizontal:align,vertical:'middle'};
           if(fmt) cell.numFmt=fmt;
         });
       });
