@@ -6,6 +6,7 @@
 <title>Hisse Avcısı — BIST Sinyal Platformu</title>
 <meta name="description" content="Hisse Avcısı: 228 BIST hissesi için teknik analiz sinyalleri ve portföy takibi">
 <meta name="theme-color" content="#04040e">
+  <meta name="version" content="1772797276">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%2304040e'/><text y='.9em' font-size='80'>🎯</text></svg>">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -839,6 +840,8 @@ function initStock(s){
 // BOOT — async chunked, non-blocking
 // ═══════════════════════════════════════════════════════
 function boot(){
+  console.log("Hisse Avcisi v1772797276 - localStorage:", typeof localStorage);
+  loadState();  // Hafızadan yükle
   // Init first 30 immediately for dashboard
   STOCKS.slice(0,30).forEach(initStock);
   renderAll();
@@ -1383,112 +1386,88 @@ async function fetchPrices(){
 // ═══════════════════════════════════════════════════════
 // PORTFOLIO
 // ═══════════════════════════════════════════════════════
-function drawDonut(canvasId, centerId, legendId, data, title){
-  const canvas = document.getElementById(canvasId);
-  const centerEl = document.getElementById(centerId);
-  const legendEl = document.getElementById(legendId);
-  if(!canvas) return;
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
-  const cx = W/2, cy = H/2, R = Math.min(W,H)/2 - 8, r = R*0.55;
-  ctx.clearRect(0,0,W,H);
 
-  if(!data.length){
-    ctx.fillStyle = '#2a2a45';
-    ctx.beginPath(); ctx.arc(cx,cy,R,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle = '#04040e';
-    ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.fill();
+
+function drawDonut(canvasId, centerId, legendId, data, title){
+  const canvas=document.getElementById(canvasId);
+  if(!canvas) return;
+  const ctx=canvas.getContext('2d');
+  const W=canvas.width, H=canvas.height, cx=W/2, cy=H/2;
+  const R=Math.min(W,H)/2-10, r=R*0.52;
+  ctx.clearRect(0,0,W,H);
+  
+  if(!data||!data.length){
+    ctx.fillStyle='#1a1a2e'; ctx.beginPath(); ctx.arc(cx,cy,R,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='#04040e'; ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.fill();
     return;
   }
-
-  const total = data.reduce((s,d)=>s+d.value,0);
-  let angle = -Math.PI/2;
-
-  // Gölge efekti
-  ctx.shadowColor = 'rgba(0,0,0,0.5)';
-  ctx.shadowBlur = 12;
-
-  data.forEach((d,i)=>{
-    const sweep = (d.value/total)*Math.PI*2;
-    ctx.beginPath();
-    ctx.moveTo(cx,cy);
-    ctx.arc(cx,cy,R,angle,angle+sweep);
-    ctx.closePath();
-    ctx.fillStyle = d.color;
-    ctx.fill();
-    angle += sweep;
+  const total=data.reduce((s,d)=>s+d.value,0);
+  if(!total) return;
+  
+  let angle=-Math.PI/2;
+  data.forEach(d=>{
+    const sweep=(d.value/total)*Math.PI*2;
+    ctx.beginPath(); ctx.moveTo(cx,cy);
+    ctx.arc(cx,cy,R,angle,angle+sweep); ctx.closePath();
+    ctx.fillStyle=d.color; ctx.fill();
+    // İnce beyaz ayraç
+    ctx.strokeStyle='#04040e'; ctx.lineWidth=2;
+    ctx.stroke();
+    angle+=sweep;
   });
-
-  ctx.shadowBlur = 0;
-
-  // İç daire (donut deliği)
-  ctx.beginPath();
-  ctx.arc(cx,cy,r,0,Math.PI*2);
-  ctx.fillStyle = '#04040e';
-  ctx.fill();
-
-  // Ortada toplam
-  if(centerEl){
-    centerEl.innerHTML = `<div style="font-size:10px;color:#666680;font-family:monospace">${title}</div><div style="font-size:14px;font-weight:700;color:#e8e8f0">₺${(total/1000).toFixed(0)}K</div>`;
-  }
-
+  
+  // İç daire
+  ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2);
+  ctx.fillStyle='#04040e'; ctx.fill();
+  
+  // Merkez yazı
+  const centerEl=document.getElementById(centerId);
+  if(centerEl) centerEl.innerHTML=`<div style="font-size:9px;color:#666680;font-family:monospace;letter-spacing:1px">${title}</div><div style="font-size:13px;font-weight:700;color:#e8e8f0;margin-top:2px">₺${(total/1000).toFixed(0)}K</div>`;
+  
   // Legend
-  if(legendEl){
-    legendEl.innerHTML = data.slice(0,6).map(d=>`
-      <div style="display:flex;justify-content:space-between;align-items:center;font-size:10px">
-        <div style="display:flex;align-items:center;gap:6px">
-          <div style="width:8px;height:8px;border-radius:2px;background:${d.color};flex-shrink:0"></div>
-          <span style="color:#e8e8f0">${d.label}</span>
-        </div>
-        <span style="color:#666680">${(d.value/total*100).toFixed(1)}%</span>
-      </div>`).join('');
-  }
+  const legendEl=document.getElementById(legendId);
+  if(legendEl) legendEl.innerHTML=data.slice(0,7).map(d=>`
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:2px 0">
+      <div style="display:flex;align-items:center;gap:6px">
+        <div style="width:8px;height:8px;border-radius:2px;background:${d.color};flex-shrink:0"></div>
+        <span style="font-size:10px;color:#c8c8d0">${d.label}</span>
+      </div>
+      <span style="font-size:10px;color:#666680;font-family:monospace">${(d.value/total*100).toFixed(1)}%</span>
+    </div>`).join('');
 }
 
 function drawBarPnl(canvasId, data){
-  const canvas = document.getElementById(canvasId);
-  if(!canvas||!data.length) return;
-  const ctx = canvas.getContext('2d');
+  const canvas=document.getElementById(canvasId);
+  if(!canvas||!data||!data.length) return;
+  const ctx=canvas.getContext('2d');
   const W=canvas.width, H=canvas.height;
   ctx.clearRect(0,0,W,H);
-
-  const pad={l:8,r:8,t:10,b:28};
+  const pad={l:4,r:4,t:16,b:32};
   const cw=W-pad.l-pad.r, ch=H-pad.t-pad.b;
   const n=data.length;
-  const barW=Math.max(4,Math.floor(cw/n)-3);
-  const maxAbs=Math.max(...data.map(d=>Math.abs(d.value)),0.01);
+  const bw=Math.max(3,Math.floor(cw/n)-2);
+  const maxV=Math.max(...data.map(d=>Math.abs(d.value)),0.1);
   const zero=pad.t+ch/2;
-
+  
   // Zero line
-  ctx.strokeStyle='rgba(255,255,255,0.1)';
-  ctx.lineWidth=1;
+  ctx.strokeStyle='rgba(255,255,255,0.08)'; ctx.lineWidth=1;
   ctx.beginPath(); ctx.moveTo(pad.l,zero); ctx.lineTo(W-pad.r,zero); ctx.stroke();
-
+  
   data.forEach((d,i)=>{
-    const x = pad.l + i*(cw/n) + (cw/n)/2 - barW/2;
-    const barH = (Math.abs(d.value)/maxAbs)*(ch/2)*0.9;
-    const y = d.value>=0 ? zero-barH : zero;
-    const color = d.value>=0 ? '#00e676' : '#ff1744';
-
-    // Glow
-    ctx.shadowColor = color;
-    ctx.shadowBlur = 6;
-    ctx.fillStyle = color;
-    ctx.fillRect(x, y, barW, barH);
-    ctx.shadowBlur = 0;
-
-    // Label
-    ctx.fillStyle = '#666680';
-    ctx.font = '8px monospace';
-    ctx.textAlign = 'center';
-    const lbl = d.label.length>4 ? d.label.substring(0,4) : d.label;
-    ctx.fillText(lbl, x+barW/2, H-8);
-
+    const x=pad.l+i*(cw/n)+(cw/n)/2-bw/2;
+    const bh=Math.max(2,(Math.abs(d.value)/maxV)*(ch/2)*0.85);
+    const y=d.value>=0?zero-bh:zero;
+    const col=d.value>=0?'#00e676':'#ff1744';
+    ctx.shadowColor=col; ctx.shadowBlur=8;
+    ctx.fillStyle=col; ctx.fillRect(x,y,bw,bh);
+    ctx.shadowBlur=0;
+    // Hisse adı
+    ctx.fillStyle='#555570'; ctx.font='7px monospace'; ctx.textAlign='center';
+    ctx.fillText(d.label.substring(0,4),x+bw/2,H-10);
     // Değer
-    ctx.fillStyle = color;
-    ctx.font = 'bold 8px monospace';
-    const valStr = (d.value>=0?'+':'')+d.value.toFixed(1)+'%';
-    ctx.fillText(valStr, x+barW/2, d.value>=0 ? y-4 : y+barH+10);
+    ctx.fillStyle=col; ctx.font='bold 7px monospace';
+    const vs=(d.value>=0?'+':'')+d.value.toFixed(1)+'%';
+    ctx.fillText(vs,x+bw/2,d.value>=0?y-4:y+bh+10);
   });
 }
 
@@ -1606,6 +1585,7 @@ function confirmPort(){
     notify(`${sym} güncellendi — ort: ₺${fmt(na)}`);
   } else {
     portfolio.push({symbol:sym,qty,cost,added:new Date().toLocaleDateString('tr-TR')});
+    saveState();
     notify(`${sym} portföye eklendi`);
   }
   closePortModal();
@@ -1614,107 +1594,94 @@ function confirmPort(){
 }
 function exportPortXLSX(){
   if(!portfolio.length){ notify('Portföy boş', true); return; }
-
-  // SheetJS yükle
-  const loadXLSX = (cb) => {
-    if(window.XLSX){ cb(); return; }
+  
+  // SheetJS CDN'den yükle
+  if(!window.XLSX){
     const s=document.createElement('script');
     s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
-    s.onload=cb; document.head.appendChild(s);
-  };
+    s.onload=()=>exportPortXLSX();
+    document.head.appendChild(s);
+    notify('Excel hazırlanıyor...');
+    return;
+  }
 
-  loadXLSX(()=>{
-    const wb = XLSX.utils.book_new();
-    const now = new Date().toLocaleDateString('tr-TR');
-    const totalCost = portfolio.reduce((s,p)=>s+p.cost*p.qty, 0);
-    const totalVal  = portfolio.reduce((s,p)=>{const cp=DB[p.symbol]?.price||p.cost; return s+cp*p.qty;}, 0);
-    const totalPnl  = totalVal - totalCost;
+  const now=new Date().toLocaleDateString('tr-TR');
+  const portVal=portfolio.reduce((s,p)=>{const cp=DB[p.symbol]?.price||p.cost;return s+cp*p.qty;},0);
+  const portCost=portfolio.reduce((s,p)=>s+p.cost*p.qty,0);
+  const portPnl=portVal-portCost;
 
-    // ── SHEET 1: Dashboard ──────────────────────────
-    const dashRows = [
-      [`🎯 HİSSE AVCISI — PORTFÖY DASHBOARD`, '', '', '', '', '', '', '', '', ''],
-      [`Rapor Tarihi: ${now}`, '', '', '', '', '', '', '', '', ''],
-      ['','','','','','','','','',''],
-      ['TOPLAM DEĞER', '', 'TOPLAM MALİYET', '', 'NET K/Z (₺)', '', 'GETİRİ ORANI', '', 'POZİSYON', ''],
-      [totalVal, '', totalCost, '', totalPnl, '', totalCost?totalPnl/totalCost:0, '', portfolio.length, ''],
-      ['','','','','','','','','',''],
-      ['HİSSE','ŞİRKET','SEKTÖR','LOT','MALİYET/HİSSE','ANL.FİYAT','TOP.DEĞER','TOP.MALİYET','K/Z ₺','K/Z %'],
-    ];
-    portfolio.forEach(p=>{
-      const d=DB[p.symbol];
-      const cp=d?.price||p.cost;
-      const val=cp*p.qty, mc=p.cost*p.qty, pnl=val-mc, pct=mc?pnl/mc:0;
-      dashRows.push([p.symbol, d?.name||'', d?.sector||'', p.qty, p.cost, cp, val, mc, pnl, pct]);
-    });
-    dashRows.push(['','','','','','','','','','']);
-    dashRows.push(['TOPLAM','','','','',totalCost,'',totalVal,'',totalCost?totalPnl/totalCost:0,'']);
+  const wb=XLSX.utils.book_new();
 
-    const wsD = XLSX.utils.aoa_to_sheet(dashRows);
-
-    // Sütun genişlikleri
-    wsD['!cols'] = [{wch:12},{wch:22},{wch:16},{wch:7},{wch:14},{wch:14},{wch:16},{wch:16},{wch:14},{wch:12}];
-
-    // Sayı formatları
-    const pctFmt = '"+0.00%;[Red]-0.00%"';
-    const tryFmt = '#,##0.00 ₺';
-    portfolio.forEach((p,i)=>{
-      const r=7+i+1; // 1-indexed
-      ['G','H','I'].forEach(col=>{
-        if(wsD[col+r]) wsD[col+r].z = tryFmt;
-      });
-      if(wsD['J'+r]) wsD['J'+r].z = '0.00%';
-    });
-    wsD['A1'].z = '@';
-    XLSX.utils.book_append_sheet(wb, wsD, 'Dashboard');
-
-    // ── SHEET 2: Pozisyonlar ──────────────────────────
-    const posRows = [
-      ['HİSSE','ŞİRKET','SEKTÖR','LOT','MALİYET/HİSSE','ANL.FİYAT','TOP.DEĞER','TOP.MALİYET','K/Z ₺','K/Z %','SİNYAL','TARİH']
-    ];
-    portfolio.forEach(p=>{
-      const d=DB[p.symbol];
-      const cp=d?.price||p.cost;
-      const val=cp*p.qty, mc=p.cost*p.qty, pnl=val-mc, pct=mc?pnl/mc:0;
-      const sig=d?.signals?.[selectedTF]?.sig||'';
-      posRows.push([p.symbol, d?.name||'', d?.sector||'', p.qty, p.cost, cp, val, mc, pnl, pct, sig, p.added||now]);
-    });
-    const wsP = XLSX.utils.aoa_to_sheet(posRows);
-    wsP['!cols'] = [{wch:10},{wch:22},{wch:16},{wch:7},{wch:14},{wch:14},{wch:16},{wch:16},{wch:14},{wch:12},{wch:12},{wch:12}];
-    XLSX.utils.book_append_sheet(wb, wsP, 'Pozisyonlar');
-
-    // ── SHEET 3: Özet ──────────────────────────
-    const sectors={};
-    portfolio.forEach(p=>{
-      const d=DB[p.symbol]; const cp=d?.price||p.cost; const val=cp*p.qty;
-      const sec=d?.sector||'Diğer';
-      sectors[sec]=(sectors[sec]||0)+val;
-    });
-    const sumRows=[
-      ['PORTFÖY ÖZETİ',''],
-      ['',''],
-      ['Toplam Değer', totalVal],
-      ['Toplam Maliyet', totalCost],
-      ['Net K/Z (₺)', totalPnl],
-      ['Getiri Oranı', totalCost?totalPnl/totalCost:0],
-      ['Pozisyon Sayısı', portfolio.length],
-      ['En İyi K/Z%', Math.max(...portfolio.map(p=>{const d=DB[p.symbol];const cp=d?.price||p.cost;const mc=p.cost*p.qty;return mc?(cp*p.qty-mc)/mc:0;}))],
-      ['En Kötü K/Z%', Math.min(...portfolio.map(p=>{const d=DB[p.symbol];const cp=d?.price||p.cost;const mc=p.cost*p.qty;return mc?(cp*p.qty-mc)/mc:0;}))],
-      ['',''],
-      ['SEKTÖR DAĞILIMI',''],
-      ['Sektör','Değer (₺)'],
-      ...Object.entries(sectors).sort((a,b)=>b[1]-a[1])
-    ];
-    const wsS = XLSX.utils.aoa_to_sheet(sumRows);
-    wsS['!cols'] = [{wch:20},{wch:18}];
-    XLSX.utils.book_append_sheet(wb, wsS, 'Ozet');
-
-    const fn = 'portfoy_'+now.replace(/\./g,'-')+'.xlsx';
-    XLSX.writeFile(wb, fn);
-    notify('Portföy Excel indirildi ✅');
+  // ── SHEET 1: DASHBOARD ──────────────────────
+  const dash=[
+    ['HİSSE AVCISI — PORTFÖY RAPORU','','','','','','','','',''],
+    [`Tarih: ${now}`,'','','','','','','','',''],
+    ['','','','','','','','','',''],
+    ['TOPLAM DEĞER','TOPLAM MALİYET','NET K/Z (₺)','GETİRİ ORANI (%)','POZİSYON SAYISI','','','','',''],
+    [portVal, portCost, portPnl, portCost?portPnl/portCost*100:0, portfolio.length,'','','','',''],
+    ['','','','','','','','','',''],
+    ['HİSSE','ŞİRKET','SEKTÖR','LOT','MALİYET/HİSSE (₺)','ANL. FİYAT (₺)','TOP. DEĞER (₺)','TOP. MALİYET (₺)','K/Z (₺)','K/Z (%)'],
+  ];
+  portfolio.forEach(p=>{
+    const d=DB[p.symbol]; const cp=d?.price||p.cost;
+    const tv=cp*p.qty, tc=p.cost*p.qty, pnl=tv-tc, pct=tc?pnl/tc*100:0;
+    dash.push([p.symbol,d?.name||'',d?.sector||'',p.qty,p.cost,cp,tv,tc,pnl,pct]);
   });
+  dash.push(['','','','','','','','','','']);
+  dash.push(['TOPLAM','','','',portCost/portfolio.length||0,'',portVal,portCost,portPnl,portCost?portPnl/portCost*100:0]);
+
+  const ws1=XLSX.utils.aoa_to_sheet(dash);
+  ws1['!cols']=[{wch:10},{wch:24},{wch:16},{wch:7},{wch:16},{wch:16},{wch:16},{wch:16},{wch:14},{wch:12}];
+  
+  // Sayı formatları
+  const tryFmt='#,##0.00 ₺'; const pctFmt='0.00%';
+  for(let i=0;i<portfolio.length;i++){
+    const r=8+i;
+    ['E','F','G','H','I'].forEach(c=>{
+      const cell=ws1[c+r]; if(cell) cell.z=tryFmt;
+    });
+    const jcell=ws1['J'+r]; if(jcell){jcell.z=pctFmt; jcell.v=(jcell.v||0)/100;}
+  }
+  XLSX.utils.book_append_sheet(wb, ws1, 'Portföy');
+
+  // ── SHEET 2: SEKTÖR ANALİZİ ──────────────────
+  const secMap={};
+  portfolio.forEach(p=>{
+    const sec=DB[p.symbol]?.sector||'Diğer';
+    const cp=DB[p.symbol]?.price||p.cost; const tv=cp*p.qty; const tc=p.cost*p.qty;
+    if(!secMap[sec]) secMap[sec]={deger:0,maliyet:0,adet:0};
+    secMap[sec].deger+=tv; secMap[sec].maliyet+=tc; secMap[sec].adet++;
+  });
+  const sec2=[['SEKTÖR','TOPLAM DEĞER (₺)','TOPLAM MALİYET (₺)','K/Z (₺)','K/Z (%)','POZİSYON','AĞIRLIK (%)']];
+  Object.entries(secMap).sort((a,b)=>b[1].deger-a[1].deger).forEach(([k,v])=>{
+    sec2.push([k,v.deger,v.maliyet,v.deger-v.maliyet,v.maliyet?(v.deger-v.maliyet)/v.maliyet*100:0,v.adet,portVal?v.deger/portVal*100:0]);
+  });
+  sec2.push(['','','','','','','']);
+  sec2.push(['TOPLAM',portVal,portCost,portPnl,portCost?portPnl/portCost*100:0,portfolio.length,100]);
+  const ws2=XLSX.utils.aoa_to_sheet(sec2);
+  ws2['!cols']=[{wch:18},{wch:18},{wch:18},{wch:14},{wch:12},{wch:12},{wch:12}];
+  XLSX.utils.book_append_sheet(wb, ws2, 'Sektör Analizi');
+
+  // ── SHEET 3: PERFORMANS ──────────────────────
+  const perf=[['PERFORMANS SIRALAMASI','','','',''],
+    ['HİSSE','MALİYET','ANL. FİYAT','K/Z (₺)','K/Z (%)']
+  ];
+  [...portfolio].map(p=>{
+    const cp=DB[p.symbol]?.price||p.cost; const tc=p.cost*p.qty; const tv=cp*p.qty;
+    return {sym:p.symbol,cost:p.cost,cp,pnl:tv-tc,pct:tc?(tv-tc)/tc*100:0};
+  }).sort((a,b)=>b.pct-a.pct).forEach(p=>{
+    perf.push([p.sym,p.cost,p.cp,p.pnl,p.pct/100]);
+  });
+  const ws3=XLSX.utils.aoa_to_sheet(perf);
+  ws3['!cols']=[{wch:10},{wch:14},{wch:14},{wch:14},{wch:12}];
+  XLSX.utils.book_append_sheet(wb, ws3, 'Performans');
+
+  XLSX.writeFile(wb, `portfoy_${now.replace(/\./g,'-')}.xlsx`);
+  notify('Portföy Excel indirildi ✅');
 }
 
-function removePort(i){const sym=portfolio[i].symbol;portfolio.splice(i,1);renderPortfolio();notify(`${sym} portföyden çıkarıldı`,true);}
+
+function removePort(i){const sym=portfolio[i].symbol;portfolio.splice(i,1);saveState();renderPortfolio();notify(`${sym} portföyden çıkarıldı`,true);}
 
 // ═══════════════════════════════════════════════════════
 // WATCHLIST
@@ -1753,7 +1720,7 @@ function renderWlAddBtns(){
   $('wl-add-btns').innerHTML=filtered.map(s=>`<button onclick="addToWl('${s.symbol}')" class="btn btn-ghost btn-sm">+ ${s.symbol}</button>`).join('');
 }
 function addToWl(sym){getWl().syms.push(sym);notify(`${sym} → ${getWl().name}`);renderWatchlist();}
-function removeFromWl(sym){const l=getWl();l.syms=l.syms.filter(s=>s!==sym);notify(`${sym} listeden çıkarıldı`,true);renderWatchlist();}
+function removeFromWl(sym){const l=getWl();l.syms=l.syms.filter(s=>s!==sym);notify(`${sym} listeden çıkarıldı`,true);saveState(); renderWatchlist();}
 function toggleWl(sym){
   const list=getWl();
   if(list.syms.includes(sym)) removeFromWl(sym);
@@ -1780,7 +1747,7 @@ function deleteWl(){
   if(!confirm(`"${getWl().name}" silinsin mi?`)) return;
   watchlists=watchlists.filter(l=>l.id!==activeWlId);
   activeWlId=watchlists[0].id;
-  renderWatchlist(); notify('Liste silindi',true);
+  saveState(); renderWatchlist(); notify('Liste silindi',true);
 }
 
 // ═══════════════════════════════════════════════════════
